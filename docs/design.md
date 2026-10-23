@@ -127,7 +127,51 @@ difference, harmless while non-commutative input is out of scope).
   product of the signs when all are extended real.
 - `Pow` with an integer exponent `n`: `n > 0` is the product; `n < 0` is the
   inverse of the product: `1/z` exact for finite nonzero `z`
-  (`conj(z)/|z|**2`), `zoo` for `0`, `0` for an infinity.
+  (`conj(z)/|z|**2`), `zoo` for `0`, `0` for an infinity. An integer
+  square or higher power of an integer is never prime (`0`, `1`, or two
+  factors of modulus `>= 2`), and `1/b` is rational only for rational `b`.
+- `Pow` with any other exponent `x` (rational literals as in `sqrt(z)`,
+  symbols, Floats, `I`): SymPy's principal value `exp(x*log(b))` for
+  finite `b != 0` and finite `x`, and satassume's special-values rows
+  elsewhere: N1 (`nan` exponent, or `nan` base with `x != 0`, gives `nan`;
+  `nan**x` at `x = 0` is free, N1 and SymPy's `nan**0 = 1` disagree), P2
+  (`b**0 = 1`), P1 (`0**x = zoo` for real `x < 0`), P3, P4, P5 (`1**oo =
+  nan`), P6, plus `b**1 = b` and `0**x = 0` for real `x > 0` (the limit,
+  as SymPy evaluates it). `0**x` for non-real `x` is free (SymPy says
+  `nan`, the limit would be `0` for `re x > 0`), and so are an infinite
+  base to a non-real exponent and any base to `zoo` or `oo*I` (no row).
+  For finite `b != 0` and finite `x` the value is the term
+  `exp(x*log(b))`, built from unevaluated SymPy objects and encoded as
+  `exp`, `log` and `Mul` are (no new axioms: finite, nonzero, `|b**x| =
+  e**re(x*log b)`, real and positive for `b > 0` and real `x`, ...). A
+  literal base `r*exp(I*pi*c0)` (a nonzero rational, `I`, `r*I`) uses
+  `log(b) = log(r) + I*pi*c0`, so `b**x = exp(x*log r)*exp(I*pi*c0*x)`, the
+  second factor split over the summands of `x` that have the factor `I`
+  (`I**(3 + I) = exp(3*I*pi/2)*exp(-pi/2)`). A real negative base and a
+  real `x` give `|b|**x*exp(I*pi*x)`, so the signs of the parts are those
+  of `exp(I*pi*x)`. `exp(I*pi*c)` gained two facts: for a literal
+  rational `c` the signs of `cos(pi*c)`, `sin(pi*c)` after reducing `c`
+  mod 2 (period `2*pi*I`), and for real `c`, `cos(pi*c) = 0` iff
+  `c - 1/2` is an integer (for `c = +-y/2`: iff `y` is odd). For an
+  integer `x` (a symbol): a real `b != 0` gives a real power with the sign
+  `(-1)**x` of a negative base, an imaginary `b = I*s` a real power for
+  even and an imaginary one for odd `x`; integer bases give integers for
+  `x >= 0` with the parity of the base (even only for `x >= 1`), no prime
+  for `|b| >= 2`, `x >= 2`, and a non-integer `0 < |b**x| <= 1/2` for
+  `x <= -1`; a rational base a rational power. Algebraic numbers: for a
+  rational `x = p/q`, `(b**x)**q = b**p`, so `b**x` is algebraic iff `b`
+  is (`b` finite, `b != 0` one way, `x != 0` the other);
+  Gelfond-Schneider: `b**x` is transcendental for algebraic `b` not in
+  `{0, 1}` and algebraic `x` not rational (every value, so the principal
+  one: `2**sqrt(2)`, `2**I`, `I**I`). A literal positive rational `n/d` to
+  a literal `p/q` is rational iff `n` and `d` are `q`-th powers, and then
+  exact. Roots: `sqrt(z)` is exactly `s**2 = z` with `re s > 0` or
+  `re s = 0 <= im s`; for real `b >= 0` the cube root is the real
+  `s >= 0` with `s**3 = b`, and `b**(-1/2)`, `b**(-1/3)` (`b > 0`) the
+  `s > 0` with `s**q*b = 1`. Not encoded: a non-integer real power of an
+  imaginary base beyond the principal value, and every exact value that
+  needs `cos`/`sin` of a rational multiple of `pi` (`(-1)**(1/3) = 1/2 +
+  sqrt(3)*I/2`).
 - Named constants (`NumberSymbol`): `pi`, `E`, `GoldenRatio`,
   `TribonacciConstant`, `EulerGamma`, `Catalan` are finite reals strictly
   inside the interval `(d, d + 10**-20)`, `d` the 20-decimal truncation of
@@ -201,8 +245,8 @@ difference, harmless while non-commutative input is out of scope).
   exponent needs more than 4096 bits keeps only its sign (the endpoints
   would be rationals of thousands of digits). `Float('inf')`, `Float('-inf')` and
   `Float('nan')` are SymPy's `oo`, `-oo` and `nan` objects, encoded as
-  such. A Float exponent (`x**1.4`) is not an integer power and stays
-  opaque.
+  such. A Float exponent (`x**1.4`) is a real in its interval, as any
+  Float term (`Pow` above).
 - `exp` (also `E**z` unevaluated) and `log` (SymPy's principal branch
   `log|z| + I*arg(z)`, `-pi < arg <= pi`; `log(x, b)` is `log(x)/log(b)`
   in SymPy). Special values from satassume's table: `nan` gives `nan`
@@ -235,7 +279,8 @@ difference, harmless while non-commutative input is out of scope).
   the `atanh` series for `log`, outward rounding). Not encoded: "`exp(z)`
   real iff `im(z)/pi` is an integer" for an imaginary part not of the
   form `pi*c` (the integer witness made z3 time out), `exp_polar`,
-  `log` with two arguments (unevaluated), and Gelfond-Schneider.
+  `log` with two arguments (unevaluated), and Gelfond-Schneider for
+  `exp`/`log` terms (it is encoded for `Pow`, above).
 - `sin`, `cos`, `tan`, `cot`, `sec`, `csc` and `sinh`, `cosh`, `tanh`,
   `coth`, `sech`, `csch`. Special values: `nan` gives `nan` (N1); an
   infinite argument leaves the value free (satassume's table has no row
@@ -298,10 +343,7 @@ difference, harmless while non-commutative input is out of scope).
 Later steps, each with its own ground axioms, stated with the theorem that
 justifies it:
 
-- `Pow` with a rational exponent: the principal square root `s` of `z` is
-  exactly `s**2 = z and (re_s > 0 or (re_s = 0 and im_s >= 0))`; `q`-th
-  roots exactly for a nonnegative real base.
-- `Pow` with a symbolic exponent, other functions: z3 uninterpreted
+- Other functions: z3 uninterpreted
   functions of the argument's components, or fresh reals as for the
   circular functions above, with sound axioms only.
   Applied undefined functions `f(x)` become uninterpreted functions too, so
@@ -392,9 +434,9 @@ optimization, never as a change of answers.
 
 `polar`; matrices and matrix predicates;
 non-commutative symbols; custom predicates and satassume's extension API
-(`register`); `refine`; and, until their step, rational and symbolic
-powers, transcendental functions other than `exp`, `log` and the
-circular and hyperbolic functions, special functions, relations.
+(`register`); `refine`; and, until their step, transcendental functions
+other than `exp`, `log`, the circular and hyperbolic functions and
+powers, special functions, relations.
 The first slice is the eleven predicates `real`, `rational`, `integer`,
 `positive`, `negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`,
 `even`, `odd` on polynomial and rational expressions.
