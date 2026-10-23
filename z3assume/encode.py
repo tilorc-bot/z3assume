@@ -502,7 +502,9 @@ class Encoder:
 
     def _eq(self, a: Term, b: Term):
         """Equal values; two other infinities, or a nan, leave it open."""
-        key = ("eq", a.expr, b.expr)
+        # equality is symmetric: one free Boolean for both orders (a set:
+        # the z3 names come from the insertion order, not from hashing)
+        key = ("eq", frozenset((a.expr, b.expr)))
         free = self._free(key)
         same = z3.Or(z3.And(a.fin, b.fin, a.re == b.re, a.im == b.im),
                      z3.And(a.pinf, b.pinf), z3.And(a.ninf, b.ninf))
