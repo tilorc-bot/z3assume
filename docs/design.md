@@ -147,8 +147,8 @@ difference, harmless while non-commutative input is out of scope).
   `conjugate` and `sign` are free (`zoo` has no direction and no written
   convention). Number theory: for real `z` the value is `+-z`, so
   integer (with `|k|` and the parity of `k`), rational, algebraic agree
-  with `z`'s (all predicates for `re`, `conjugate` and a nonnegative
-  `z` under `Abs`), and `sign` is the integer `-1`, `0` or `1`; for any
+  with `z`'s (all predicates but `polar` for `re`, `conjugate` and a
+  nonnegative `z` under `Abs`), and `sign` is the integer `-1`, `0` or `1`; for any
   finite algebraic `z` all five are algebraic (the algebraic numbers are a
   field closed under complex conjugation and square roots), and
   `conjugate(z)` is algebraic only for algebraic `z` (an involution).
@@ -289,3 +289,9 @@ may change".
    truth.
 6. `A & ~P` unsat with `A & P` unknown: `True` (default, see "Answering",
    Tilo may change) or `None`.
+7. `re`, `im`, `conjugate`, `sign` at the infinities. Default, Tilo may
+   change: at `+oo` and `-oo` their limits along the real axis (`re = +-oo`,
+   `im = 0`, `conjugate = +-oo`, `sign = +-1`; satassume's special-values
+   table has no row for them); at `zoo` and the directed non-real
+   infinities they are free. About 50 queries of the refine stream need a
+   value at `zoo` (e.g. `Q.zero(sign(1/x))` under `Q.real(x)`).
