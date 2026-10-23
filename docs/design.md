@@ -43,10 +43,11 @@ own number objects. The arithmetic on them follows satassume's written
 conventions: `1/0 = zoo` and `0**0 = 1` (satassume docs/design.md,
 "Extended reals and `nan` in templates"), `oo - oo = 0*oo = nan`, and the
 table of values at infinities, `nan` and poles in satassume's
-docs/special-values.md (open PR satassume#293; rows V1-V3 are used here).
-Where satassume states nothing, z3assume uses SymPy's total and unambiguous
-conventions (`1/oo = 0`, `x**0 = 1`, from the table in SymPy's `Pow`
-docstring; decision 3).
+docs/special-values.md (open PR satassume#293; the rows used are cited
+where they are used: V1-V3, N1, P1-P6, F1-F3, M3). Where satassume states
+nothing, z3assume uses the table in SymPy's `Pow` docstring (`oo**-1 =
+0`); where the two disagree (`nan**0`: N1 says `nan`, SymPy's table `1`)
+the value is left free (decision 3).
 
 For every term `t` (every subexpression the query reaches, keyed by the
 SymPy object, so equal subexpressions share their variables) z3assume
@@ -479,14 +480,17 @@ one-line rationale added here.
    Rationale: SymPy compares `Float(0.1) > 1/10` exactly but decides `Eq`
    at the Float's precision, so only a bounded unknown is sound under both
    readings (satassume docs/theories.md).
-3. Kept: special values follow satassume's written conventions (`1/0 =
-   zoo` and `0**0 = 1`, satassume docs/design.md; rows V1, V2, F3, N1 of
-   the special-values table, satassume#293) and, where satassume is
-   silent, the conventions in SymPy's `Pow` docstring table (`z**0 = 1`
-   for every `z`, `oo**-1 = 0`). Rationale: each is a written convention
-   or a limit argued in that table, not an evaluation result (#247);
-   z3assume relies on each row's own argument, whether or not #293 is
-   merged.
+3. Kept, with one change: special values follow satassume's written
+   conventions (`1/0 = zoo` and `0**0 = 1`, satassume docs/design.md; the
+   rows of the special-values table, satassume#293, cited where used) and,
+   where satassume is silent, the table in SymPy's `Pow` docstring
+   (`oo**-1 = 0`). Where they disagree the value is free: `nan**0` (N1 and
+   P2 say `nan`, SymPy's table `z**0 = 1`) was 1 for a literal exponent 0
+   and is now free, as it already was for a symbolic exponent. Rationale:
+   each value used is a written convention, not an evaluation result
+   (#247); a value two written conventions disagree on has no argument, so
+   it is left open (soundness before definiteness); z3assume relies on
+   each table row's own argument, whether or not #293 is merged.
 4. Kept: answers are given under the whole of `A`, not satassume's
    relevance split; raising on inconsistent assumptions is as in satassume.
    Rationale: `ask(P, A)` asks whether `A` entails `P`, so the whole set is

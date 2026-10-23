@@ -263,7 +263,15 @@ class Encoder:
     def _node(self, t: Term, e, args):
         a = t.atoms
         if isinstance(e, Pow) and e.exp == 0:
-            e = Integer(1)      # x**0 = 1 for every x, nan included (design.md)
+            # P2: b**0 = 1 for every b but nan; nan**0 is free (N1 says nan,
+            # SymPy's Pow table 1; design.md, decision 3)
+            b = self.term(e.base)
+            start = len(self.axioms)
+            self._node(t, Integer(1), None)
+            one = self.axioms[start:]
+            del self.axioms[start:]
+            self._add(z3.Implies(z3.Not(b.nan), z3.And(one)))
+            return
         if isinstance(e, Integer):
             n = int(e)
             self._value(t, n, 0)
@@ -499,7 +507,7 @@ class Encoder:
         Special values (satassume special-values, docs/special-values.md of
         satassume#293): N1 a ``nan`` exponent gives ``nan``, a ``nan`` base
         too unless ``x = 0``, which is left free (``nan**0 = 1`` is SymPy's
-        convention for a literal 0, design.md, and N1 says ``nan``); P2
+        ``Pow`` table and N1 says ``nan``; design.md, decision 3); P2
         ``b**0 = 1`` for every other ``b``; ``b**1 = b`` (``exp(log b) = b``,
         ``0**1 = 0``, P3 with ``d**1 = d``); ``0**x = 0`` for real ``x > 0``
         (``|z**x| = |z|**x -> 0`` as ``z -> 0``, as SymPy evaluates it) and
