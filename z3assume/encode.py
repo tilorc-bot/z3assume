@@ -241,7 +241,7 @@ class Encoder:
         under ``cond`` the value of ``t`` is the finite real ``n/d``.  From
         the terms' own witnesses ``k`` (under ``integer``) through rational
         constants, sums, and products with at most one non-constant factor;
-        it reads only the forms of the arguments, so ``_shape`` can use it."""
+        it reads only the forms of the arguments."""
         if isinstance(e, Rational):                 # Integer included
             return int(e.q), int(e.p), True
         forms = [self._lin[x] for x in args] if args is not None else None
@@ -337,7 +337,7 @@ class Encoder:
             self._add(v == 0, a["algebraic"], z3.Not(a["rational"]))
 
     def _float(self, t: Term, e):
-        """A Float (design.md "Terms", open question 2): a finite real with
+        """A Float (design.md "Terms", decision 2): a finite real with
         the sign of its mpf ``(-1)**s * man * 2**exp``, 0 exactly when the
         mpf is 0, and otherwise strictly within one unit in the last place
         (at the Float's precision ``p`` bits) of that binary value ``v``:

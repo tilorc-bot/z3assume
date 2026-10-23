@@ -158,7 +158,7 @@ move to "agree", or to "more" with an argument given here.
 | `exp`, `log` (#11) | 228 | 313 | 0 | 2 stream (distinct) |
 | trigonometric and hyperbolic (#13) | 197 | 200 | 0 | 9 stream, 7 gate2 (13 distinct) |
 | powers (#14) | 157 | 8 | 0 | 7 gate2 (6 distinct) |
-| rational coefficients over the integers (#16) | TBD | TBD | 0 | none |
+| rational coefficients over the integers (#16) | 107 | 8 | 0 | none |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -335,7 +335,7 @@ base to an irrational or non-half-integer real exponent (not imaginary),
 `Q.rational(y) & Q.real(x) & ~Q.integer(2*y)`; each sign of `x` alone is
 decided, the case split exhausts the rlimit) and stream 12210
 (`Q.zero(sqrt(sign(x)*sign(conjugate(x))))` under `Q.negative(re(x))`:
-`x` may be `zoo`, where `re` and `sign` are free, open question 7).
+`x` may be `zoo`, where `re` and `sign` are free, decision 7).
 
 No check hit the 10 s backstop. Wall times (6 jobs, shared machine, load
 average 1 to 8): stream 133 s, gate2 35 s; summed query times 794 s and
