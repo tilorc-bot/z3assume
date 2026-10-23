@@ -281,7 +281,11 @@ Answers are meant to be deterministic: each check runs under z3's
 `rlimit` (a count of z3's internal steps, not wall time), z3's random seeds
 are its defaults and never changed, and the assertions are built in a fixed
 order (the SymPy
-argument order, never a `set` iteration or a hash order). A memo of
+argument order, never a `set` iteration or a hash order). Each query is
+encoded in its own `z3.Context`: in a shared context, z3's term ids and
+caches, and with them its search, would depend on the queries asked
+before (issue #7; a gate2 query took 0.8 s alone and ran into the
+backstop below after the queries before it). A memo of
 answers keyed by `(P, A)` is kept, as satassume does; it cannot change an
 answer.
 
