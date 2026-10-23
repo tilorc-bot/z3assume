@@ -90,7 +90,8 @@ class Encoder:
 
     def _shape(self, t: Term):
         """The kind is one of five; the basis Booleans are the numeric
-        definitions unless the value is nan, the rules always."""
+        definitions unless the value is nan, the rules always; nan is no
+        number."""
         kinds = [t.fin, t.pinf, t.ninf, t.cinf, t.nan]
         self._add(z3.PbEq([(k, 1) for k in kinds], 1))
         a = t.atoms
@@ -105,6 +106,10 @@ class Encoder:
         }
         for p, d in defs.items():
             self._add(z3.Implies(z3.Not(t.nan), a[p] == d))
+        # satassume's convention for nan (docs/special-values.md row V1):
+        # every predicate is False except finite (and infinite) and polar;
+        # commutative is True of every term in scope (design.md)
+        self._add(*(z3.Implies(t.nan, z3.Not(a[p])) for p in BASIS if p not in ("finite", "polar")))
         notnan = z3.Not(t.nan)
         # integer witnesses: z3 reasons about integers in the Int sort
         self._add(z3.Implies(z3.And(notnan, a["integer"]),
@@ -125,6 +130,8 @@ class Encoder:
 
     def _node(self, t: Term, e, args):
         a = t.atoms
+        if isinstance(e, Pow) and e.exp == 0:
+            e = Integer(1)      # x**0 = 1 for every x, nan included (design.md)
         if isinstance(e, Integer):
             n = int(e)
             self._value(t, n, 0)
