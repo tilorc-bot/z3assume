@@ -1,6 +1,8 @@
 """An answer does not depend on the queries asked before it (#7): each
-query has its own z3 context, so the same queries in another order give the
-same answers and the same unknown checks."""
+query has its own z3 context. test_own_context checks that construction;
+test_order_independent checks the answers in reversed order, but six queries
+are too little history to reproduce #7 on a shared context, so it is a smoke
+test, not a regression guard (the full order check is in the PR #10 body)."""
 import sys
 
 import z3

@@ -94,8 +94,8 @@ def _lit(atoms, pred, pos):
 class Encoder:
     """Collects the terms and axioms of one query."""
 
-    def __init__(self, ctx=None):
-        self.ctx = ctx or z3.main_ctx()
+    def __init__(self, ctx):
+        self.ctx = ctx
         self.terms = {}
         self.axioms = []
         self.opaque = {}
