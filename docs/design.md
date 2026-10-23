@@ -158,7 +158,7 @@ difference, harmless while non-commutative input is out of scope).
   even and an imaginary one for odd `x`; integer bases give integers for
   `x >= 0` with the parity of the base (even only for `x >= 1`), no prime
   for `|b| >= 2`, `x >= 2`, and a non-integer `0 < |b**x| <= 1/2` for
-  `x <= -1`; a rational base a rational power. Algebraic numbers: for a
+  `x <= -1` (encoded as `-1 < t < 1`, `t != 0`); a rational base a rational power. Algebraic numbers: for a
   rational `x = p/q`, `(b**x)**q = b**p`, so `b**x` is algebraic iff `b`
   is (`b` finite, `b != 0` one way, `x != 0` the other);
   Gelfond-Schneider: `b**x` is transcendental for algebraic `b` not in

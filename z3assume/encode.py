@@ -491,7 +491,8 @@ class Encoder:
         >= 0`` an integer, even for an even ``b`` and ``x >= 1``, odd for an
         odd ``b``; for ``|b| >= 2``: never prime for ``x >= 2`` (``b`` and
         ``b**(x-1)`` are nontrivial factors), and ``0 < |b**x| <= 1/2`` for
-        ``x <= -1``, so no integer; a rational ``b != 0`` gives a rational.
+        ``x <= -1``, so no integer (encoded as the weaker ``-1 < t < 1,
+        t != 0``, which is all that is needed); a rational ``b != 0`` gives a rational.
 
         Algebraic numbers: for a rational ``x = p/q`` and finite ``b != 0``,
         ``(b**x)**q = exp(p*log b) = b**p``, so ``b**x`` is algebraic for an
