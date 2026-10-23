@@ -2,7 +2,7 @@
 Catalan) and the field closure around them.  Every expected answer has its
 argument next to it (design.md, "The truth standard")."""
 import pytest
-from sympy import (Catalan, E, Eq, EulerGamma, Function, GoldenRatio, I, Ne, Pow, Q, S, TribonacciConstant, oo, pi,
+from sympy import (Catalan, E, Eq, EulerGamma, Function, GoldenRatio, I, Ne, Pow, Q, S, TribonacciConstant, nan, oo, pi,
                    Symbol, symbols, zoo)
 
 from z3assume import ask
@@ -75,6 +75,8 @@ CASES = [
     (Eq(x, pi), Q.algebraic(x), False, "pi is transcendental"),
     (Q.eq(y, x), Q.eq(x, y), True, "equality is symmetric (x = y = zoo included)"),
     (Q.ne(y, x), Q.eq(x, y), False, "equality is symmetric"),
+    (Q.eq(S(2), nan), True, None, "nan equality is left open (design.md)"),
+    (Q.real(x), Q.eq(S.Half, nan) & Q.eq(x, 2), True, "x = 2"),
     (Q.rational(f(y)), Eq(f(y), pi), False, "f(y) = pi, or f(y) is nan (opaque), no rational either way"),
 ]
 

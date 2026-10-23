@@ -189,6 +189,8 @@ Equal values satisfy the same predicates (congruence), so where an
 equality holds with the same value on both sides (equal finite values, or
 both `oo`, or both `-oo`), every basis atom of one side equals the same
 atom of the other, except `polar`, which the value does not decide.
+An equality left open is the same open Boolean for both orders of its
+sides, since equality is symmetric whatever it means there.
 
 ## Answering
 
