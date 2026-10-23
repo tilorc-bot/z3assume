@@ -15,6 +15,7 @@ from sympy.core.numbers import (ComplexInfinity, ImaginaryUnit, Infinity, Intege
                                 NegativeInfinity, NumberSymbol, Rational)
 from sympy.core.power import Pow
 from sympy.core.relational import Relational
+from sympy.functions.elementary.complexes import Abs, conjugate, im as Im, re as Re, sign
 from sympy.logic.boolalg import (And, BooleanFalse, BooleanTrue, Equivalent, ITE, Implies, Not, Or,
                                  Xor)
 from sympy.assumptions.assume import AppliedPredicate
@@ -191,6 +192,8 @@ class Encoder:
             self._product(t, args)
         elif isinstance(e, Pow) and isinstance(e.exp, Integer):
             self._power(t, self.term(e.base), int(e.exp))
+        elif isinstance(e, (Abs, Re, Im, conjugate, sign)) and len(e.args) == 1:
+            self._complex_part(t, type(e), self.term(e.args[0]))
         else:
             self._opaque(t, e)
 
@@ -329,6 +332,74 @@ class Encoder:
                 self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), ba[p]), a[p]))
             # b is a root of t*x**m - 1 (algebraic closure, as above)
             self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), a["algebraic"]), ba["algebraic"]))
+
+    def _same(self, t: Term, z: Term, cond):
+        """Under ``cond`` the value of ``t`` is that of ``z``: the
+        predicates without a numeric definition agree."""
+        a, za = t.atoms, z.atoms
+        self._add(z3.Implies(cond, z3.And([a[p] == za[p] for p in
+                                           ("integer", "rational", "algebraic", "prime", "composite", "even")])),
+                  z3.Implies(z3.And(cond, za["integer"]), z3.And(t.k == z.k, t.r == z.r)))
+
+    def _int_value(self, t: Term, cond, k):
+        """Under ``cond`` the value of ``t`` is the integer ``k``."""
+        self._add(z3.Implies(cond, z3.And(t.fin, t.im == 0, t.re == z3.ToReal(k), t.atoms["integer"], t.k == k)))
+
+    def _complex_part(self, t: Term, f, z: Term):
+        """``Abs``, ``re``, ``im``, ``conjugate``, ``sign`` of ``z``, exact on
+        the pair ``re_z + im_z*I``.  ``nan`` gives ``nan`` (satassume
+        special-values N1); an infinity ``t*d`` (t real -> +oo, satassume
+        special-values V2) gives the limit of the function, which only
+        ``Abs`` (row F3: ``oo``) has for every infinity: ``re``, ``im``,
+        ``conjugate`` and ``sign`` of ``+-oo`` are ``+-oo``, ``0``, ``+-oo``,
+        ``+-1``, and are left free for the other infinities (``zoo`` has no
+        direction).  Number theory: the algebraic numbers are closed under
+        complex conjugation (a root of a rational polynomial ``p`` has its
+        conjugate as a root of ``p``), the field operations and square
+        roots, so ``re = (z + conj z)/2``, ``im = (z - conj z)/(2*I)``,
+        ``|z| = sqrt(z*conj z)`` and ``z/|z|`` of an algebraic ``z`` are
+        algebraic."""
+        a, za = t.atoms, z.atoms
+        zre, zim = z.re, z.im
+        real = z.real()
+        self._add(z3.Implies(z.nan, t.nan))
+        if f is Abs:
+            self._add(z3.Implies(z.infinite(), t.pinf),
+                      z3.Implies(z.fin, z3.And(t.fin, t.im == 0, t.re >= 0, t.re * t.re == zre * zre + zim * zim,
+                                               t.re >= zre, t.re >= -zre, t.re >= zim, t.re >= -zim)),
+                      # a real z is +-|z|: the same rationality, |k| with the parity of k
+                      z3.Implies(real, t.re == z3.If(zre >= 0, zre, -zre)),
+                      z3.Implies(real, z3.And([a[p] == za[p] for p in ("integer", "rational", "algebraic")])),
+                      z3.Implies(z3.And(real, za["integer"]),
+                                 z3.And(t.k == z3.If(z.k >= 0, z.k, -z.k), t.r == z.r)),
+                      z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
+            self._same(t, z, z3.And(real, zre >= 0))
+        elif f is Re:
+            self._add(z3.Implies(z.pinf, t.pinf), z3.Implies(z.ninf, t.ninf),
+                      z3.Implies(z.fin, z3.And(t.fin, t.im == 0, t.re == zre)),
+                      z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
+            self._same(t, z, real)
+        elif f is Im:
+            self._int_value(t, z3.Or(z.pinf, z.ninf, real), z3.IntVal(0, self.ctx))
+            self._add(z3.Implies(z.fin, z3.And(t.fin, t.im == 0, t.re == zim)),
+                      z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
+        elif f is conjugate:
+            self._add(z3.Implies(z.pinf, t.pinf), z3.Implies(z.ninf, t.ninf),
+                      z3.Implies(z.fin, z3.And(t.fin, t.re == zre, t.im == -zim)),
+                      # conjugation is an involution
+                      z3.Implies(z.fin, a["algebraic"] == za["algebraic"]))
+            self._same(t, z, real)
+        else:  # sign: 0 at 0, else z/|z|
+            one = z3.IntVal(1, self.ctx)
+            self._int_value(t, z.pinf, one)
+            self._int_value(t, z.ninf, -one)
+            self._int_value(t, real, z3.If(zre > 0, one, z3.If(zre < 0, -one, z3.IntVal(0, self.ctx))))
+            # z/|z| for non-real z (real z above, linear), with the term of
+            # Abs(z) (unevaluated: SymPy's evaluation is not used)
+            m = self.term(Abs(z.expr, evaluate=False)).re
+            self._add(z3.Implies(z3.And(z.fin, zim != 0), z3.And(t.fin, t.re * m == zre, t.im * m == zim,
+                                                                             t.re * t.re + t.im * t.im == 1)),
+                      z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
 
     def _fresh_int(self, v):
         k = z3.Int(f"pk{self._count()}", self.ctx)
