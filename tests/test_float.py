@@ -1,6 +1,6 @@
 """Floats: a finite real with its exact sign, strictly within one unit in
 the last place (at its precision) of its binary value, and nothing else
-(design.md, "Terms" and open question 2).  Every expected answer has its
+(design.md, "Terms" and decision 2).  Every expected answer has its
 argument next to it (design.md, "The truth standard")."""
 from sympy import Add, Float, Mul, Q, Rational, S, oo, nan, pi, symbols
 

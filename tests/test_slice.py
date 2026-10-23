@@ -1,7 +1,7 @@
 """The first slice: the eleven predicates on polynomial and rational
 expressions.  Every expected answer has its argument next to it."""
 import pytest
-from sympy import Eq, Pow, Q, Rational, S, Symbol, nan, symbols, zoo
+from sympy import Add, Eq, Mul, Pow, Q, Rational, S, Symbol, nan, symbols, zoo
 
 from z3assume import ask
 
@@ -25,6 +25,16 @@ CASES = [
     (Q.integer(x * y - x), Q.integer(x) & Q.integer(y), True, "Z is a ring"),
     (Q.integer(x / 2), Q.even(x), True, "x = 2*k"),
     (Q.integer(x / 2), Q.odd(x), False, "x = 2*k + 1"),
+    # rational coefficients over the integers (#12): x = 2*k + 1
+    (Q.integer(x / 2 - S.Half), Q.odd(x), True, "x/2 - 1/2 = k"),
+    (Q.integer(Mul(S.Half, Add(x, 1, evaluate=False), evaluate=False)), Q.odd(x), True, "(x + 1)/2 = k + 1"),
+    (Q.integer(x / 2 + Rational(3, 2)), Q.odd(x), True, "x/2 + 3/2 = k + 2"),
+    (Q.integer(-x / 2 - Rational(3, 2)), Q.odd(x), True, "-x/2 - 3/2 = -k - 2"),
+    (Q.integer(3 * x / 2 - S.Half), Q.odd(x), True, "3*x/2 - 1/2 = 3*k + 1"),
+    (Q.integer(x / 2 - S.Half), Q.even(x), False, "x = 2*k: k - 1/2"),
+    (Q.even(x / 2 + S.Half), Q.odd(x), None, "x = 1: 1, x = 3: 2"),
+    (Q.integer(x * y), Q.integer(x / 3) & Q.integer(y), True, "x = 3*(x/3) is an integer"),
+    (Q.integer(x / 2 + y / 3), Q.even(x) & Q.integer(y), None, "x = 0: y = 3 and y = 1"),
     (Q.integer(x + y), Q.integer(x) & Q.noninteger(y) & Q.real(y), False, "y = (x + y) - x"),
     (Q.integer(x), Q.rational(x), None, "1/2 and 1"),
     (Q.positive(x**2 + 1), Q.real(x), True, "x**2 >= 0"),
@@ -66,7 +76,9 @@ CASES = [
     (Q.positive(Rational(-1, 3)), True, False, "-1/3 < 0"),
     (Q.extended_real(zoo), True, False, "zoo is a non-real infinity"),
     (Q.finite(nan), True, None, "nan is neither finite nor infinite (satassume special-values V1)"),
-    (Q.odd(Pow(x, 0, evaluate=False)), True, True, "x**0 = 1 for every x (design.md, open question 3)"),
+    (Q.odd(Pow(x, 0, evaluate=False)), True, True, "P2: x**0 = 1, a symbol is never nan"),
+    (Q.integer(Pow(nan, 0, evaluate=False)), True, None, "nan**0: N1 says nan, SymPy's Pow table 1; free"),
+    (Q.integer(Pow(x * y, 0, evaluate=False)), True, None, "x*y may be 0*oo = nan"),
     (Q.positive(nan), True, False, "nan is no number (satassume special-values V1)"),
     (Q.integer(nan), True, False, "nan is no number (satassume special-values V1)"),
     (Q.extended_real(x - y), Q.infinite(x) & Q.infinite(y) & Q.extended_positive(x) & Q.extended_positive(y), False,

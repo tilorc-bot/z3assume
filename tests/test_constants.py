@@ -32,7 +32,7 @@ CASES = [
     (Q.rational((1 + pi)**2), True, False, "(1 + pi)**2 algebraic would make pi algebraic"),
     (Q.algebraic(1 / pi**3), True, False, "pi is a root of t*x**3 - 1"),
     (Q.transcendental(x), Q.algebraic(x**2) & Q.finite(x), False, "x is a root of x**2 - a"),
-    # the closure needs a nonzero exponent: b**0 = 1 for every b (design.md)
+    # the closure needs a nonzero exponent: b**0 = 1 for every b but nan (design.md, decision 3)
     (Q.algebraic(Pow(pi, 0, evaluate=False)), True, True, "pi**0 = 1"),
     (Q.transcendental(x), Q.algebraic(Pow(x, 0, evaluate=False)) & Q.finite(x), None, "x**0 = 1 says nothing of x"),
     (Q.zero(pi * k / 2), Q.odd(k), False, "no zero divisors, pi != 0, k != 0"),
