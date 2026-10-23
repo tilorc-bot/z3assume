@@ -16,8 +16,8 @@ other exception, ``"crash"`` entries ``[index, repr]`` (the answer is then
 
 The queries are independent, so ``--jobs`` workers (default 6) take
 contiguous chunks in order; each answer is placed by its index.  Each
-worker keeps its own memo of (prop, assum) -> result, so a repeated query
-reports the timeouts of its first evaluation.
+worker keeps its own memo of (prop, assum) -> result (except results with
+a timeout, which are recomputed, as ``ask``'s own memo does).
 """
 import argparse
 import json
@@ -76,7 +76,7 @@ def _chunk(rng):
             out.append((i, ans, to, unk, 0.0, crash))
             continue
         r = _one(p, a)
-        if key is not None:
+        if key is not None and not r[1]:   # like ask's memo: no timeout Nones
             _MEMO[key] = r
         out.append((i,) + r)
     return out
