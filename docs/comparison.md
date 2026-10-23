@@ -154,6 +154,7 @@ move to "agree", or to "more" with an argument given here.
 | `Eq` carries the predicates (#6) | 269 | 389 | 0 | none |
 | symmetric `Eq` (#8) | 261 | 389 | 0 | none |
 | Floats (#9) | 261 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
+| one z3 context per query (#10) | 261 | 368 | 0 | none |
 
 Arguments for the 16 new answers of the `Abs` step:
 
