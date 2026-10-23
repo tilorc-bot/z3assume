@@ -179,7 +179,8 @@ class Encoder:
             self._add(t.cinf)
         elif isinstance(e, NaN):
             self._add(t.nan)
-        elif isinstance(e, NumberSymbol) and type(e).__name__ in CONSTANTS:
+        elif (isinstance(e, NumberSymbol) and type(e).__name__ in CONSTANTS
+              and type(e).__module__ == "sympy.core.numbers"):     # not a user class
             self._constant(t, *CONSTANTS[type(e).__name__])
         elif isinstance(e, Symbol):
             self._add(z3.Not(t.nan))
