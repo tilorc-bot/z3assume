@@ -153,6 +153,7 @@ move to "agree", or to "more" with an argument given here.
 | `Abs`, `re`, `im`, `conjugate`, `sign` (#5) | 269 | 390 | 0 | 16 distinct, stream only |
 | `Eq` carries the predicates (#6) | 269 | 389 | 0 | none |
 | symmetric `Eq` (#8) | 261 | 389 | 0 | none |
+| Floats (#9) | 269 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
 
 Arguments for the 16 new answers of the `Abs` step:
 
@@ -168,6 +169,42 @@ Arguments for the 16 new answers of the `Abs` step:
   `im(x)` decides `positive(-I*x)`, and the other way round.
 - **`sign` of an odd integer is `1` or `-1`** (4 queries, True):
   `sign(n) + 2 > 0`, `-2 < sign(n)`, `-sign(n) < 2`.
+
+Arguments for the 18 new answers of the Float step (the reading of a
+Float is design.md "Terms: `Float`": a finite real with its exact sign,
+strictly within one ulp at its precision of its binary value):
+
+- **A Float bound makes a symbol finite** (14 stream queries 4911-4996,
+  `real(x)` True, `infinite(x)` and `infinite(x/pi + 1/2)` False, given
+  `Q.le(x, F)` with a Float `F` (`1.5707963267948966`, `4.712`, `1.571`)
+  and `Q.ge(x, -pi/2)`, `Q.gt(x, -pi/2)` or `Q.ge(x, pi/2)`): a relation
+  holds only between extended reals (design.md "Relations"); `x <= F` with
+  `F` finite excludes `x = +oo`, `x >= -pi/2` excludes `-oo`, so `x` is a
+  finite real, and so is `x/pi + 1/2` (`pi` finite, nonzero).
+- **Below `pi/2`** (stream 4930, `integer(x/pi + 1/2)` False given
+  `x <= 1.5707963267948966` and `x > -pi/2`): this Float has 60 bits; its
+  binary value is `pi/2 - 1.96e-17` and its ulp `2**-59 < 1.8e-18`, so its
+  interval lies below `pi/2 - 1.7e-17` (and `pi`'s interval is `10**-20`
+  wide). So `-pi/2 < x < pi/2` and `x/pi + 1/2` lies in `(0, 1)`. (The
+  decimal `1.5707963267948966` is itself below `pi/2 = 1.5707963267948966192...`.)
+  With `Q.ge(x, -pi/2)` instead, `x = -pi/2` gives `0` and z3assume
+  answers None.
+- **`1.0` is not even, prime or composite** (gate2 246, 249, 250, False):
+  the interval of `Float(1.0)` is `(1 - 2**-52, 1 + 2**-52)`; its only
+  integer is `1`, which is odd and neither prime nor composite, and a
+  non-integer is none of the three. (`Q.integer(1.0)` and `Q.odd(1.0)` stay
+  None.)
+
+The other Float answers that moved (gate2 240-269, `Q.positive(1.0)`,
+`Q.integer(7.2123)`, ...) now agree with satassume. The one Float query
+still "less" is `Q.negative(x**1.4)` (gate2 1625): a Float exponent is not
+an integer power and stays opaque.
+
+Of four runs of the stream for this step on a shared machine (load
+average 13 to 19), two had one check stopped by the 10 s backstop, each
+in a query without a Float (stream 9500 and 3617, 0.05 s and 0.25 s in the
+`Eq` step's run); 3617 kept its answer (False) and 9500 its None. The last
+run, the one in the table, had none.
 
 ## Speed
 
