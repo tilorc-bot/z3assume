@@ -7,6 +7,7 @@ order), so the problem z3 sees does not depend on hashing.
 """
 from __future__ import annotations
 
+import math
 from fractions import Fraction
 
 import z3
@@ -77,6 +78,34 @@ TRIG = {
 #: The inverse functions (SymPy's principal branches), by the value of the
 #: forward function at 0 (0, 1, or None for the pole of cot and coth).
 INVERSE = {asin: 0, acos: 1, atan: 0, acot: None, asinh: 0, acosh: 1, atanh: 0, acoth: None}
+
+
+def _iroot(n: int, q: int) -> int:
+    """The integer part of the ``q``-th root of ``n >= 0`` (bisection)."""
+    lo, hi = 0, 1 << (n.bit_length() // q + 1)
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if mid ** q <= n:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def _polar_literal(w):
+    """``(r, c0)`` with ``w = r*exp(I*pi*c0)`` for a literal nonzero
+    rational, ``I`` or rational multiple of ``I``: ``r`` a positive
+    Fraction, ``c0`` one of ``0, 1, 1/2, -1/2``; else None."""
+    if isinstance(w, Rational) and w != 0:
+        f = Fraction(int(w.p), int(w.q))
+        return abs(f), Fraction(0 if f > 0 else 1)
+    if w is S.ImaginaryUnit:
+        return Fraction(1), Fraction(1, 2)
+    if isinstance(w, Mul) and len(w.args) == 2 and w.args[1] is S.ImaginaryUnit \
+            and isinstance(w.args[0], Rational) and w.args[0] != 0:
+        f = Fraction(int(w.args[0].p), int(w.args[0].q))
+        return abs(f), Fraction(1, 2) if f > 0 else Fraction(-1, 2)
+    return None
 
 
 class Unsupported(Exception):
@@ -232,6 +261,8 @@ class Encoder:
             # E**z (unevaluated) is exp(z): the principal value
             # exp(z*log(E)) with log(E) = 1
             self._exp(t, self.term(e.exp))
+        elif isinstance(e, Pow) and type(e) is Pow:   # not a user subclass
+            self._pow(t, e)
         elif type(e) is exp and len(e.args) == 1:     # not a user subclass
             self._exp(t, self.term(e.args[0]))
         elif type(e) is log and len(e.args) == 1:     # not a user subclass
@@ -390,6 +421,10 @@ class Encoder:
             # algebraic numbers are algebraically closed); pi**2 is
             # transcendental
             self._add(z3.Implies(z3.And(b.fin, a["algebraic"]), ba["algebraic"]))
+            if n >= 2:
+                # b**n = b * b**(n - 1) for an integer b: 0 or +-1 for |b| <= 1,
+                # else two factors of modulus >= 2, so never a prime
+                self._add(z3.Implies(z3.And(b.fin, ba["integer"]), z3.Not(a["prime"])))
         else:
             # t = 1/b**m: exact for b finite nonzero, zoo for 0, 0 for an infinity
             norm = re * re + im * im
@@ -401,6 +436,217 @@ class Encoder:
                 self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), ba[p]), a[p]))
             # b is a root of t*x**m - 1 (algebraic closure, as above)
             self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), a["algebraic"]), ba["algebraic"]))
+            if n == -1:
+                # b = 1/t: rational t gives rational b
+                self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), a["rational"]), ba["rational"]))
+
+    # -- powers with an exponent that is not an integer literal -----------
+
+    def _pow(self, t: Term, e):
+        """``b**x`` for an exponent ``x`` that is not an integer literal:
+        SymPy's principal value ``exp(x*log(b))`` for finite ``b != 0`` and
+        finite ``x``, and satassume's special-values rows elsewhere.
+
+        Special values (satassume special-values, docs/special-values.md of
+        satassume#293): N1 a ``nan`` exponent gives ``nan``, a ``nan`` base
+        too unless ``x = 0``, which is left free (``nan**0 = 1`` is SymPy's
+        convention for a literal 0, design.md, and N1 says ``nan``); P2
+        ``b**0 = 1`` for every other ``b``; ``b**1 = b`` (``exp(log b) = b``,
+        ``0**1 = 0``, P3 with ``d**1 = d``); ``0**x = 0`` for real ``x > 0``
+        (``|z**x| = |z|**x -> 0`` as ``z -> 0``, as SymPy evaluates it) and
+        P1 ``0**x = zoo`` for real ``x < 0``; ``0**x`` for non-real ``x`` is
+        free (SymPy gives ``nan``, the limit would be ``0`` for ``re x >
+        0``: no convention to follow).  P3, an infinite ``b`` to a real
+        nonzero ``x``: ``0`` for ``x < 0``; for ``x > 0`` ``oo**x = oo``,
+        ``(-oo)**x`` has the direction ``(-1)**x = exp(I*pi*x)``: ``oo``,
+        ``-oo`` for an even, odd integer, a non-real direction otherwise,
+        and the other infinities stay infinite.  P4, P5, P6 for an infinite
+        ``x = +-oo``: the limits of ``b**t`` (``0``, ``oo`` for a growing
+        positive ``b``, ``zoo`` for another growing one), and ``nan`` for
+        ``|b| = 1``.  An infinite ``b`` to a non-real finite ``x`` and every
+        ``b`` to an infinity other than ``+-oo`` are free (no row).
+
+        Finite ``b != 0``, finite ``x``: ``b**x`` is the term
+        ``exp(x*log(b))`` (unevaluated SymPy objects, encoded by ``_exp``,
+        ``_log`` and ``_product``), so it is finite and nonzero, real and
+        positive for a positive ``b`` and real ``x``, and so on.  For a
+        literal base ``b = r*exp(I*pi*c0)``, ``r`` a positive rational and
+        ``c0`` one of ``0, 1, 1/2, -1/2`` (a rational, ``I`` or a rational
+        multiple of ``I``), ``log(b) = log(r) + I*pi*c0`` (principal: ``pi*c0``
+        lies in ``(-pi, pi]``), so ``b**x = exp(x*log(r)) *
+        exp(I*pi*c0*x)``, with the ``I*pi*c`` facts of ``_exp`` for the
+        second factor; when ``x`` is a sum with summands that have the
+        factor ``I``, that factor is split by them, ``exp(I*pi*c0*(u + v)) =
+        exp(I*pi*c0*u)*exp(I*pi*c0*v)`` (all summands finite).  For a real
+        negative ``b`` and real ``x``, ``log b = log|b| + I*pi``, so ``b**x =
+        |b|**x * exp(I*pi*x)`` with ``|b|**x > 0``: the signs of the real and
+        imaginary parts are those of ``exp(I*pi*x)`` (not real for a
+        non-integer ``x``, imaginary for ``x`` in ``1/2 + Z``).
+
+        Integer ``x`` (symbolic: an integer literal is ``_power``), where
+        ``b**x`` is the ``|x|``-fold product or its inverse: for real ``b !=
+        0`` it is real, positive for ``b > 0``, with the sign ``(-1)**x`` for
+        ``b < 0``; for imaginary ``b = I*s`` it is ``I**x * s**x``, real for
+        even ``x`` and imaginary for odd ``x``; for an integer ``b`` and ``x
+        >= 0`` an integer, even for an even ``b`` and ``x >= 1``, odd for an
+        odd ``b``; for ``|b| >= 2``: never prime for ``x >= 2`` (``b`` and
+        ``b**(x-1)`` are nontrivial factors), and ``0 < |b**x| <= 1/2`` for
+        ``x <= -1``, so no integer (encoded as the weaker ``-1 < t < 1,
+        t != 0``, which is all that is needed); a rational ``b != 0`` gives a rational.
+
+        Algebraic numbers: for a rational ``x = p/q`` and finite ``b != 0``,
+        ``(b**x)**q = exp(p*log b) = b**p``, so ``b**x`` is algebraic for an
+        algebraic ``b``, and ``b`` is algebraic for an algebraic ``b**x``
+        (``x != 0``; for ``b = 0`` trivially).  Gelfond-Schneider (1934):
+        for algebraic ``b`` other than ``0``, ``1`` and algebraic ``x`` that
+        is not rational, every value of ``b**x`` is transcendental.  For a
+        literal positive rational ``b = n/d`` (lowest terms) and literal
+        ``x = p/q``: ``b**x`` is rational iff ``n`` and ``d`` are ``q``-th
+        powers (``n**p/d**p = (u/v)**q`` in lowest terms on both sides
+        forces ``n**p = u**q``, so ``q`` divides every exponent of ``n``'s
+        prime factorisation, as ``gcd(p, q) = 1``; likewise ``d``), and then
+        its value is exact.
+
+        Roots: ``sqrt(b)`` is exactly ``s`` with ``s**2 = b`` and ``re s >
+        0`` or ``re s = 0 <= im s`` (``arg s = arg(b)/2`` lies in ``(-pi/2,
+        pi/2]``), for every finite ``b``; for a real ``b >= 0``,
+        ``b**(1/3)`` is the real ``s >= 0`` with ``s**3 = b`` and
+        ``b**(-1/2)``, ``b**(-1/3)`` (``b > 0``) the ``s > 0`` with ``s**q * b
+        = 1``."""
+        b, x = self.term(e.base), self.term(e.exp)
+        ctx = self.ctx
+        a, ba, xa = t.atoms, b.atoms, x.atoms
+        one, zero = z3.IntVal(1, ctx), z3.IntVal(0, ctx)
+        bzero = z3.And(b.fin, b.re == 0, b.im == 0)
+        bnz = z3.And(b.fin, z3.Or(b.re != 0, b.im != 0))
+        bone = z3.And(b.fin, b.re == 1, b.im == 0)
+        xzero = z3.And(x.fin, x.re == 0, x.im == 0)
+        xone = z3.And(x.fin, x.re == 1, x.im == 0)
+        xreal, binf = x.real(), b.infinite()
+        # N1, P2, b**1 = b
+        self._add(z3.Implies(x.nan, t.nan), z3.Implies(z3.And(b.nan, z3.Not(xzero)), t.nan))
+        self._int_value(t, z3.And(xzero, z3.Not(b.nan)), one)
+        self._add(z3.Implies(xone, z3.And(t.fin == b.fin, t.pinf == b.pinf, t.ninf == b.ninf, t.cinf == b.cinf,
+                                          t.nan == b.nan, z3.Implies(b.fin, z3.And(t.re == b.re, t.im == b.im)))))
+        self._same(t, b, xone)
+        # 0**x for real x != 0 (P1)
+        self._int_value(t, z3.And(bzero, xreal, x.re > 0), zero)
+        self._add(z3.Implies(z3.And(bzero, xreal, x.re < 0), t.cinf))
+        # P4, P5: finite b, x = +-oo
+        nb = self._fresh_real("pownorm")
+        self._add(z3.Implies(z3.And(b.fin, z3.Or(x.pinf, x.ninf)), nb == b.re * b.re + b.im * b.im))
+        bpos = z3.And(b.fin, b.im == 0, b.re > 0)
+        self._int_value(t, z3.And(b.fin, z3.Or(z3.And(x.pinf, nb < 1), z3.And(x.ninf, nb > 1))), zero)
+        self._add(z3.Implies(z3.And(b.fin, z3.Or(z3.And(x.pinf, nb > 1), z3.And(x.ninf, nb < 1))),
+                             z3.If(bpos, t.pinf, t.cinf)),
+                  z3.Implies(z3.And(b.fin, nb == 1, z3.Or(x.pinf, x.ninf)), t.nan))
+        # P6, P3: infinite b
+        self._int_value(t, z3.And(binf, z3.Or(x.ninf, z3.And(xreal, x.re < 0))), zero)
+        xpos = z3.And(xreal, x.re > 0)
+        self._add(z3.Implies(z3.And(binf, x.pinf), z3.If(b.pinf, t.pinf, t.cinf)),
+                  z3.Implies(z3.And(b.pinf, xpos), t.pinf),
+                  z3.Implies(z3.And(b.cinf, xpos), t.infinite()),
+                  z3.Implies(z3.And(b.ninf, xpos),
+                             z3.If(xa["integer"], z3.If(x.r == 0, t.pinf, t.ninf), t.cinf)))
+        # finite b != 0, finite x: exp(x*log(b))
+        cond = z3.And(bnz, x.fin)
+        if e.base is not S.Zero:
+            self._principal(t, e.base, e.exp, x, cond)
+        # integer x
+        xint = z3.And(x.fin, xa["integer"])
+        breal = z3.And(b.fin, b.im == 0, b.re != 0)
+        bimag = z3.And(b.fin, b.re == 0, b.im != 0)
+        bint = z3.And(b.fin, ba["integer"])
+        big = z3.Or(b.k >= 2, b.k <= -2)
+        self._add(z3.Implies(z3.And(xint, breal),
+                             z3.And(t.fin, t.im == 0, z3.Implies(b.re > 0, t.re > 0),
+                                    z3.Implies(b.re < 0, z3.If(x.r == 0, t.re > 0, t.re < 0)))),
+                  z3.Implies(z3.And(xint, bimag),
+                             z3.And(t.fin, z3.If(x.r == 0, z3.And(t.im == 0, t.re != 0),
+                                                 z3.And(t.re == 0, t.im != 0)))),
+                  z3.Implies(z3.And(bint, xint, x.k >= 0), a["integer"]),
+                  z3.Implies(z3.And(bint, ba["even"], xint, x.k >= 1), a["even"]),
+                  z3.Implies(z3.And(bint, z3.Not(ba["even"]), xint, x.k >= 0),
+                             z3.And(a["integer"], z3.Not(a["even"]))),
+                  z3.Implies(z3.And(bint, big, xint, x.k >= 2), z3.Not(a["prime"])),
+                  z3.Implies(z3.And(bint, big, xint, x.k <= -1),
+                             z3.And(t.fin, t.im == 0, t.re > -1, t.re < 1, t.re != 0)),
+                  z3.Implies(z3.And(bnz, ba["rational"], xint), a["rational"]))
+        # algebraic numbers: rational x, Gelfond-Schneider
+        xrat = z3.And(x.fin, xa["rational"])
+        self._add(z3.Implies(z3.And(bnz, ba["algebraic"], xrat), a["algebraic"]),
+                  z3.Implies(z3.And(b.fin, xrat, z3.Not(xzero), t.fin, a["algebraic"]), ba["algebraic"]),
+                  z3.Implies(z3.And(bnz, ba["algebraic"], z3.Not(bone), x.fin, xa["algebraic"],
+                                    z3.Not(xa["rational"])), z3.Not(a["algebraic"])))
+        if isinstance(e.exp, Rational):
+            self._rational_power(t, b, e.base, Fraction(int(e.exp.p), int(e.exp.q)))
+
+    def _principal(self, t: Term, base, xe, x: Term, cond):
+        """Under ``cond`` (finite ``b != 0``, finite ``x``) ``t`` is the
+        principal value ``exp(x*log(b))`` (``_pow``)."""
+        lit = _polar_literal(base)
+        if lit is None:
+            val = exp(Mul(xe, log(base, evaluate=False), evaluate=False), evaluate=False)
+            # a real negative b: the direction is that of exp(I*pi*x)
+            b = self.term(base)
+            d = self.term(exp(Mul(S.ImaginaryUnit, S.Pi, xe, evaluate=False), evaluate=False))
+            self._add(z3.Implies(z3.And(cond, b.real(), b.re < 0, x.real()),
+                                 z3.And((t.re > 0) == (d.re > 0), (t.re < 0) == (d.re < 0),
+                                        (t.im > 0) == (d.im > 0), (t.im < 0) == (d.im < 0))))
+        else:
+            r, c0 = lit
+            factors = []
+            if r != 1:
+                factors.append(exp(Mul(xe, log(Rational(r.numerator, r.denominator), evaluate=False),
+                                       evaluate=False), evaluate=False))
+            if c0:
+                groups = [xe]
+                if isinstance(xe, Add):
+                    imag = [g for g in xe.args if g is S.ImaginaryUnit
+                            or (isinstance(g, Mul) and S.ImaginaryUnit in g.args)]
+                    rest = [g for g in xe.args if g not in imag]
+                    if imag and rest:
+                        groups = [g[0] if len(g) == 1 else Add(*g, evaluate=False) for g in (rest, imag)]
+                        cond = z3.And(cond, *[self.term(g).fin for g in xe.args])
+                for g in groups:
+                    if isinstance(g, Rational):
+                        c = Rational(c0.numerator, c0.denominator) * g
+                    elif c0 == 1:
+                        c = g
+                    else:
+                        c = Mul(Rational(c0.numerator, c0.denominator), g, evaluate=False)
+                    factors.append(exp(Mul(S.ImaginaryUnit, S.Pi, c, evaluate=False), evaluate=False))
+            if not factors:
+                self._int_value(t, cond, z3.IntVal(1, self.ctx))
+                return
+            val = factors[0] if len(factors) == 1 else Mul(*factors, evaluate=False)
+        v = self.term(val)
+        self._add(z3.Implies(cond, z3.And(t.fin, t.re == v.re, t.im == v.im)))
+        self._same(t, v, cond)
+
+    def _rational_power(self, t: Term, b: Term, base, f: Fraction):
+        """A literal rational exponent ``p/q`` (``_pow``): roots, and the
+        rationality of a power of a literal positive rational."""
+        p, q = f.numerator, f.denominator
+        if f == Fraction(1, 2):
+            sre, sim = self._fresh_mul(t.re, t.im, t.re, t.im)
+            self._add(z3.Implies(b.fin, z3.And(t.fin, sre == b.re, sim == b.im,
+                                               z3.Or(t.re > 0, z3.And(t.re == 0, t.im >= 0)))))
+        elif abs(p) == 1 and q in (2, 3):
+            s = t.re
+            sq = s * s if q == 2 else s * s * s
+            if p == 1:
+                self._add(z3.Implies(z3.And(b.real(), b.re >= 0), z3.And(t.fin, t.im == 0, s >= 0, sq == b.re)))
+            else:
+                self._add(z3.Implies(z3.And(b.real(), b.re > 0), z3.And(t.fin, t.im == 0, s > 0, sq * b.re == 1)))
+        if isinstance(base, Rational) and base > 0:
+            n, d = int(base.p), int(base.q)
+            rn, rd = _iroot(n, q), _iroot(d, q)
+            if rn ** q == n and rd ** q == d:
+                v = Fraction(rn, rd) ** p
+                self._add(t.fin, t.im == 0, t.re == self._q(v), t.atoms["rational"])
+            else:
+                self._add(z3.Not(t.atoms["rational"]))
 
     def _same(self, t: Term, z: Term, cond):
         """Under ``cond`` the value of ``t`` is that of ``z``: the
@@ -508,7 +754,10 @@ class Encoder:
         ``z = I*pi*c`` (a product with the factors ``I`` and ``pi``) and
         real ``c``: ``exp(z) = cos(pi*c) + I*sin(pi*c)``, which is
         ``(-1)**c`` for an integer ``c`` and not real otherwise
-        (``sin(pi*c) = 0`` iff ``c`` is an integer).  ``exp(0) = 1``.
+        (``sin(pi*c) = 0`` iff ``c`` is an integer), and imaginary iff
+        ``c - 1/2`` is an integer (``cos(pi*c) = 0``); for a literal
+        rational ``c`` the signs of ``cos(pi*c)``, ``sin(pi*c)`` after
+        reducing ``c`` mod 2 (period ``2*pi*I``).  ``exp(0) = 1``.
         Hermite-Lindemann: ``e**w`` is transcendental for algebraic
         ``w != 0``.  ``exp(log(w)) = w`` for finite ``w != 0`` (``log(w)``
         is a logarithm of ``w``).  At a rational point ``r``, ``m`` lies in
@@ -545,6 +794,23 @@ class Encoder:
             one = z3.IntVal(1, ctx)
             self._int_value(t, z3.And(c.real(), c.atoms["integer"]), z3.If(c.r == 0, one, -one))
             self._add(z3.Implies(z3.And(c.real(), z3.Not(c.atoms["integer"])), im != 0))
+            if isinstance(c.expr, Rational):
+                # period 2*pi*I: exp(I*pi*c) = exp(I*pi*c') with c' = c - 2*n
+                # in (-1, 1], and pi*c' in (-pi, pi] has the signs above
+                f = Fraction(int(c.expr.p), int(c.expr.q))
+                f -= 2 * math.ceil((f - 1) / 2)
+                self._add(im > 0 if 0 < f < 1 else im < 0 if -1 < f < 0 else im == 0,
+                          re > 0 if abs(f) < Fraction(1, 2) else re == 0 if abs(f) == Fraction(1, 2) else re < 0)
+            else:
+                # cos(pi*c) = 0 iff c - 1/2 is an integer (the zeros of cos)
+                h = self.term(Add(c.expr, Rational(-1, 2), evaluate=False))
+                self._add(z3.Implies(c.real(), (re == 0) == h.atoms["integer"]))
+                ce = c.expr
+                if isinstance(ce, Mul) and len(ce.args) == 2 and ce.args[0] in (S.Half, -S.Half):
+                    # c = +-y/2 lies in 1/2 + Z iff y is an odd integer (the
+                    # same fact, on y's integer witness)
+                    y = self.term(ce.args[1])
+                    self._add(z3.Implies(y.real(), (re == 0) == z3.And(y.atoms["integer"], y.r == 1)))
         # Hermite-Lindemann (1882)
         self._add(z3.Implies(z3.And(z.fin, za["algebraic"], z3.Not(zero)), z3.Not(a["algebraic"])))
         if isinstance(w, log) and len(w.args) == 1:

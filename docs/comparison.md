@@ -157,6 +157,7 @@ move to "agree", or to "more" with an argument given here.
 | one z3 context per query (#10) | 261 | 368 | 0 | none |
 | `exp`, `log` (#11) | 228 | 313 | 0 | 2 stream (distinct) |
 | trigonometric and hyperbolic (#13) | 197 | 200 | 0 | 9 stream, 7 gate2 (13 distinct) |
+| powers (#14) | 157 | 8 | 0 | 7 gate2 (6 distinct) |
 
 Arguments for the 16 new answers of the `Abs` step:
 
@@ -293,6 +294,56 @@ replaced by the real denominator `|cos z|**2`, 0.3 s alone. Probes with a
 non-real argument of `tan` (`Q.algebraic(tan(x))` given `Q.complex(x)`)
 still can take seconds, depending on what the z3 context saw before:
 nonlinear model search, the answer None either way.
+
+Arguments for the 7 new answers of the powers step (design.md "Terms:
+`Pow` with any other exponent"; satassume None; all gate2):
+
+- **`(3*I)**I` and `(1 + I)**I` are not real** (663, 669, False): the
+  principal value is `exp(I*log(b))` with `log(3*I) = log 3 + I*pi/2` and
+  `log(1 + I) = log(sqrt(2)) + I*pi/4`, so `b**I = exp(-pi/2)*exp(I*log 3)`
+  and `exp(-pi/4)*exp(I*log(sqrt(2)))`. The imaginary parts are a positive
+  real times `sin(log 3)` and `sin(log sqrt(2))`, and `0 < log(sqrt(2)) <
+  log 3 < pi`, so both are nonzero.
+- **`1**y` for rational `y`** (1272, 1364, `Q.rational(x**y)` True under
+  `Q.rational(y) & Q.eq(x, 1)`): a rational `y` is finite, and for finite
+  `y`, `1**y = exp(y*log 1) = exp(0) = 1`.
+- **`x**1 = x`** (1760, `Q.prime(x**y)` True under `Q.prime(x) &
+  Q.eq(y, 1)`; 1761, the same under `Q.integer(y) & 0 < y < 2`, so `y =
+  1`): `exp(log x) = x` for finite `x != 0`, and a prime is one.
+- **A prime to an integer power other than 1 is no prime** (1755, False
+  under `Q.integer(x) & Q.prime(p) & Q.ne(x, 1)`): `x >= 2` gives `p*p**(x -
+  1)` with both factors at least 2; `x = 0` gives 1; `x <= -1` gives
+  `0 < p**x <= 1/2`, no integer.
+
+The other 40 stream and 192 gate2 answers that moved now agree with
+satassume: `sqrt(2)` (irrational, algebraic, positive), `I**I`,
+`(-1)**I`, `I**(3 + I)`, `3**I`, `2**I` (Gelfond-Schneider for the
+transcendence, the principal value for the rest), `(-1)**k` and `I**k`
+for integer `k`, signs and parities of `x**k` for integer `k`, `0**y`,
+`b**0`, `2**x` finite, `x**y` for positive `x` and real `y`, a negative
+base to an irrational or non-half-integer real exponent (not imaginary),
+`x**1.4` for real `x` (not negative), `sqrt` of a negative real
+(imaginary), the closure facts (`Q.rational(1/x)` given
+`Q.irrational(x)`, `Q.prime(x**2)` given `Q.integer(x)`,
+`Q.algebraic(sqrt(sin(7)))`) and `exp(x)**x` for imaginary `x`. Still
+"less" among the powers: gate2 1492 and 1553 (`Q.imaginary(x**y)` under
+`Q.rational(y) & Q.real(x) & ~Q.integer(2*y)`; each sign of `x` alone is
+decided, the case split exhausts the rlimit) and stream 12210
+(`Q.zero(sqrt(sign(x)*sign(conjugate(x))))` under `Q.negative(re(x))`:
+`x` may be `zoo`, where `re` and `sign` are free, open question 7).
+
+No check hit the 10 s backstop. Wall times (6 jobs, shared machine, load
+average 1 to 8): stream 133 s, gate2 35 s; summed query times 794 s and
+205 s, against 669 s and 97 s for the trigonometric step. The queries with
+a non-integer power cost 50 s (stream) and 86 s (gate2) summed, against 7 s
+and 18 s before, when they were None at once: each such power adds the
+terms `log(b)`, `x*log(b)`, `exp(x*log(b))` and, for a symbolic base,
+`exp(I*pi*x)` with its half-integer term (the last about 20% of the cost
+on gate2's 223 distinct power queries, for 3 answers). The rest of the
+increase is load: the problem of a query without such a power is
+unchanged (but for `exp(I*pi*c)`), and alone such queries vary up to 2x
+between runs (stream 3205: 3.6 s and 7.7 s; gate2 916: 8.4 s on both
+branches, 0.04 s in the stream run). A pinned benchmark was not run.
 
 ## Speed
 
