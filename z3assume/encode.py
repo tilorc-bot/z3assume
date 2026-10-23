@@ -7,11 +7,13 @@ order), so the problem z3 sees does not depend on hashing.
 """
 from __future__ import annotations
 
+from fractions import Fraction
+
 import z3
 from sympy import Basic, Symbol
 from sympy.core.add import Add
 from sympy.core.mul import Mul
-from sympy.core.numbers import (ComplexInfinity, ImaginaryUnit, Infinity, Integer, NaN,
+from sympy.core.numbers import (ComplexInfinity, Float, ImaginaryUnit, Infinity, Integer, NaN,
                                 NegativeInfinity, NumberSymbol, Rational)
 from sympy.core.power import Pow
 from sympy.core.relational import Relational
@@ -48,6 +50,12 @@ CONSTANTS = {
     # OEIS A006752; real (sum of (-1)**n/(2n+1)**2), rationality open
     "Catalan": ("0.91596559417721901505", None),
 }
+
+
+#: A Float whose mantissa or binary exponents (of its value and of its ulp)
+#: need more bits than this gets only its sign: its interval's endpoints
+#: would be rationals of thousands of digits (``Float('1e100000')``).
+FLOAT_EXP_BOUND = 4096
 
 
 class Unsupported(Exception):
@@ -170,6 +178,8 @@ class Encoder:
         elif isinstance(e, Rational):
             self._value(t, z3.Q(int(e.p), int(e.q), self.ctx), 0)
             self._add(a["rational"], a["algebraic"])
+        elif isinstance(e, Float):
+            self._float(t, e)
         elif isinstance(e, ImaginaryUnit):
             self._value(t, 0, 1)
             self._add(a["algebraic"])
@@ -213,6 +223,27 @@ class Encoder:
             for c in facts[1:]:
                 v = v * t.re + c
             self._add(v == 0, a["algebraic"], z3.Not(a["rational"]))
+
+    def _float(self, t: Term, e):
+        """A Float (design.md "Terms", open question 2): a finite real with
+        the sign of its mpf ``(-1)**s * man * 2**exp``, 0 exactly when the
+        mpf is 0, and otherwise strictly within one unit in the last place
+        (at the Float's precision ``p`` bits) of that binary value ``v``:
+        every real that rounds to ``v`` at ``p`` bits, in any rounding mode,
+        lies there.  Nothing more: whether it is an integer, rational or
+        algebraic follows only where the interval decides it."""
+        s, man, exp, bc = e._mpf_
+        if not man:
+            self._value(t, 0, 0)            # fzero: the only mpf that rounds from 0
+            return
+        sgn = -1 if s else 1
+        self._add(t.fin, t.im == 0, t.re > 0 if sgn > 0 else t.re < 0)
+        if max(bc, abs(exp), abs(exp + bc - e._prec)) > FLOAT_EXP_BOUND:
+            return
+        v = sgn * man * Fraction(2) ** exp
+        ulp = Fraction(2) ** (exp + bc - e._prec)
+        q = lambda f: z3.Q(f.numerator, f.denominator, self.ctx)  # noqa: E731
+        self._add(t.re > q(v - ulp), t.re < q(v + ulp))
 
     def _declared(self, t: Term, s):
         """Old-style assumptions of a symbol are facts about it."""

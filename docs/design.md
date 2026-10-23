@@ -153,6 +153,56 @@ difference, harmless while non-commutative input is out of scope).
   field closed under complex conjugation and square roots), and
   `conjugate(z)` is algebraic only for algebraic `z` (an involution).
   `arg` stays opaque (its values need `atan2`).
+- `Float` (open question 2): a Float with mpf `(s, man, exp, bc)` and
+  precision `p` bits (`Float._prec`) has the binary value
+  `v = (-1)**s * man * 2**exp`. It is a finite real `x` with the sign of
+  `v` (`x = 0` exactly when the mpf is zero) and `v - u < x < v + u`,
+  where `u = 2**(exp + bc - p)` is one unit in the last place of a
+  `p`-bit number with `v`'s leading bit. Nothing else is stated: whether
+  `x` is an integer follows only where the interval decides it
+  (`Q.integer(0.5)` False, no integer in `(1/2 - 2**-53, 1/2 + 2**-53)`;
+  `Q.even(1.0)` False, the interval's only integer is `1`; `Q.integer(1.0)`
+  None), and rationality and algebraicity never do (every open interval
+  holds rationals, algebraic irrationals and transcendentals). An
+  `Eq`/`<` with a value inside the interval stays open; one outside it is
+  decided.
+
+  The reading, and why the interval is a sound enclosure of it: a Float
+  stands for some real that rounds to it at its own precision. mpmath
+  (SymPy's Float arithmetic) rounds `y` to `v` at `p` bits only if
+  `|y - v| < u`, in every rounding mode: to nearest `|y - v| <= u/2`
+  (`u/4` below a power of two, where the spacing halves), and a directed
+  mode (floor, ceiling, toward or away from zero) leaves less than the
+  spacing next to `v` on `y`'s side, at most `u`. Rounding keeps the sign,
+  and only `0` rounds to the zero mpf (mpmath's exponents are unbounded:
+  no underflow, no signed zero). Both of SymPy's own readings of a Float
+  lie inside the interval: `v` itself (`Float(0.1) > 1/10` compares `v`
+  exactly) and every number `Eq` calls equal to the Float (`Eq(0.1,
+  1/10)` is True because `1/10` rounds to `v` at 53 bits). So a definite
+  answer holds under either reading, and a value the Float may round
+  stays open: `Q.eq(0.1, 1/10)`, `Q.lt(0.1, 1/10)` and `Q.gt(0.1, 1/10)`
+  are None, `Q.ne(0.1, 1/5)` is True. The interval is two ulps wide where
+  half an ulp would cover round-to-nearest, so the reading does not
+  depend on the rounding mode that made the Float.
+
+  What the reading does not cover, deliberately: a Float made by `evalf`
+  or by SymPy's Float arithmetic is taken as the Float it is, not as the
+  exact value it approximates (evalf does not promise one-ulp accuracy,
+  and the query never sees what the Float came from). So
+  `sum([Float(0.1)]*10, S.Zero)`, printed `1.00000000000000`, is the
+  binary value `1 - 2**-53`, and `Q.integer` of it is False; and a Python
+  float such as the subnormal `5e-324` gets the interval of its 53-bit
+  Float, not the IEEE one. One Float object
+  (one mpf at one precision: SymPy's `==`; the hash ignores the
+  precision) is one value, so
+  `f - f` is `0`; Floats of different precisions are different objects
+  (`Float(0.5, 15) != Float(0.5, 30)` in SymPy) and so independent values,
+  each in its own interval. A Float whose mantissa, exponent or ulp
+  exponent needs more than 4096 bits keeps only its sign (the endpoints
+  would be rationals of thousands of digits). `Float('inf')`, `Float('-inf')` and
+  `Float('nan')` are SymPy's `oo`, `-oo` and `nan` objects, encoded as
+  such. A Float exponent (`x**1.4`) is not an integer power and stays
+  opaque.
 - Field closure, as ground axioms per node (z3 has no theory of the
   rationals inside the reals): a sum, product or integer power of rational
   (algebraic) values is rational (algebraic); a sum with all terms but one
@@ -255,7 +305,7 @@ optimization, never as a change of answers.
 
 ## Out of scope at first
 
-Floats (open question 2); `polar`; matrices and matrix predicates;
+`polar`; matrices and matrix predicates;
 non-commutative symbols; custom predicates and satassume's extension API
 (`register`); `refine`; and, until their step, rational and symbolic
 powers, transcendental and special functions, relations.
@@ -277,10 +327,12 @@ may change".
    docs/theories.md and overview.md "Known gaps": SymPy compares
    `Float(0.1) > 1/10` exactly but decides `Eq` at the Float's precision,
    so no fixed reading agrees with SymPy everywhere), yet answers
-   `Q.positive(0.5)` True. Default, Tilo may change: a Float is opaque for
-   now; the next step makes it a real with its exact sign in an interval
-   with rational endpoints around its value, with no rationality, integer
-   or equality facts.
+   `Q.positive(0.5)` True. Default, Tilo may change: a Float is a real
+   with its exact sign strictly within one ulp (at its precision) of its
+   binary value, with no rationality, integer or equality facts beyond
+   what that interval decides (see "Terms"); this is the "bounded unknown
+   within its own precision" satassume's theories.md calls sound under
+   both readings.
 3. Special values. Default: satassume's conventions (`1/0 = zoo`,
    `0**0 = 1`, `nan` is no number, the special-values table of
    satassume#293); where satassume is silent, SymPy's total conventions
