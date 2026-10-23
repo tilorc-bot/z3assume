@@ -2,12 +2,13 @@
 Catalan) and the field closure around them.  Every expected answer has its
 argument next to it (design.md, "The truth standard")."""
 import pytest
-from sympy import (Catalan, E, Eq, EulerGamma, GoldenRatio, I, Ne, Pow, Q, S, TribonacciConstant, oo, pi,
-                   symbols, zoo)
+from sympy import (Catalan, E, Eq, EulerGamma, Function, GoldenRatio, I, Ne, Pow, Q, S, TribonacciConstant, oo, pi,
+                   Symbol, symbols, zoo)
 
 from z3assume import ask
 
 x, y, k = symbols("x y k")
+f = Function("f")
 T = TribonacciConstant
 
 CASES = [
@@ -69,6 +70,10 @@ CASES = [
     (Q.integer(x), Eq(x, oo), False, "x = oo is no integer"),
     (Q.rational(x), Eq(x, zoo, evaluate=False), False, "x is infinite"),
     (Q.rational(x), Ne(x, pi), None, "x != pi says nothing"),
+    (Ne(x, pi), Q.rational(x), True, "pi is irrational"),
+    (Q.rational(x), Eq(x, pi) | Eq(x, E), False, "both are transcendental"),
+    (Eq(x, pi), Q.algebraic(x), False, "pi is transcendental"),
+    (Q.rational(f(y)), Eq(f(y), pi), False, "f(y) = pi, or f(y) is nan (opaque), no rational either way"),
 ]
 
 
@@ -87,3 +92,12 @@ def test_eq_inconsistent():
     (x algebraic as a root of x**5 - a)."""
     with pytest.raises(ValueError):
         ask(Q.positive(y), Eq(x, pi) & Q.algebraic(x**5))
+
+
+def test_eq_polar_apart():
+    """polar is not a property of the value: exp_polar(0) and 1 are equal
+    values, one polar and one not, so the polar atoms stay apart."""
+    pp = Symbol("pp", polar=True, positive=True)
+    qq = Symbol("qq", polar=False, positive=True)
+    assert ask(Ne(pp, qq)) is None
+    assert ask(Q.positive(y), Eq(pp, 1) & Eq(qq, 1)) is None

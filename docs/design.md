@@ -185,6 +185,10 @@ relation atoms mean; `<=`, `>`, `>=`, `!=` follow satassume's spec
 (`a <= b` is `extended_real(a) & extended_real(b) & ~lt(b, a)`).
 These are linear or nonlinear real constraints and need no glue: the link
 between the sign predicates and the relations is the shared variables.
+Equal values satisfy the same predicates (congruence), so where an
+equality holds with the same value on both sides (equal finite values, or
+both `oo`, or both `-oo`), every basis atom of one side equals the same
+atom of the other, except `polar`, which the value does not decide.
 
 ## Answering
 
