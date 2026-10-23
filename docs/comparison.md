@@ -151,6 +151,7 @@ move to "agree", or to "more" with an argument given here.
 | first slice | 1,137 | 545 | 0 | 79 (above) |
 | named constants (#3) | 593 | 405 | 0 | none |
 | `Abs`, `re`, `im`, `conjugate`, `sign` (#5) | 269 | 390 | 0 | 16 distinct, stream only |
+| `Eq` carries the predicates (#6) | 269 | 389 | 0 | none |
 
 Arguments for the 16 new answers of the `Abs` step:
 
