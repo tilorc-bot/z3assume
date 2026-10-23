@@ -39,9 +39,14 @@ A scalar SymPy expression denotes one value of
 where `C` is the complex numbers, `+oo`, `-oo` are the infinities of the
 extended reals, the other infinities are `zoo` and the directed non-real
 ones (`I*oo`), lumped together, and `nan` is "undefined". These are SymPy's
-own number objects; the conventions of SymPy's arithmetic on them are taken
-as definitions where they are total and unambiguous (`oo - oo = nan`,
-`0*oo = nan`, `1/0 = zoo`, `1/oo = 0`, `x**0 = 1`), see the open questions.
+own number objects. The arithmetic on them follows satassume's written
+conventions: `1/0 = zoo` and `0**0 = 1` (satassume docs/design.md,
+"Extended reals and `nan` in templates"), `oo - oo = 0*oo = nan`, and the
+table of values at infinities, `nan` and poles in satassume's
+docs/special-values.md (open PR satassume#293; rows V1-V3 are used here).
+Where satassume states nothing, z3assume uses SymPy's total and unambiguous
+conventions (`1/oo = 0`, `x**0 = 1`) as its own default, which Tilo may
+change (open question 3).
 
 For every term `t` (every subexpression the query reaches, keyed by the
 SymPy object, so equal subexpressions share their variables) z3assume
@@ -59,7 +64,9 @@ creates:
 - Booleans for the predicates z3 has no theory for: `rational_t`,
   `algebraic_t`, `prime_t`.
 
-A free symbol is any value except `nan` (open question 1). A complex number
+A free symbol is any value except `nan`, as in satassume (its soundness
+oracle never evaluates at a `nan` argument, and it answers
+`ask(Q.finite(x + 1), Q.finite(x))` True). A complex number
 is a pair of reals: z3's nonlinear real arithmetic (nlsat) is complete for
 the real-closed-field problems this gives, so `(a + b*I)*(c + d*I)` and
 `|z|**2 = re**2 + im**2` are exact.
@@ -92,11 +99,14 @@ not `nan`:
 - `commutative`: true for every term in scope; a term with a
   non-commutative part is out of scope.
 
-For `nan` SymPy decides no predicate. z3assume leaves every predicate
-Boolean of a `nan` term free, subject only to the implications between
-predicates (the rule base), so nothing definite follows from a term that
-may be `nan`. To make that possible the predicates are z3 Booleans
-`P_t` with `not nan_t -> (P_t <-> definition)`.
+For `nan`, satassume's convention (special-values row V1) is that `nan`
+is no number: every predicate is False of it except `finite` and
+`infinite`, which stay open (`polar` is not stated and stays open too).
+So the predicates are z3 Booleans `P_t` with
+`not nan_t -> (P_t <-> definition)` and `nan_t -> not P_t` for every basis
+predicate but `finite` and `polar`. `commutative` is True of every term in
+scope, `nan` included (satassume leaves it open of `nan`; a known
+difference, harmless while non-commutative input is out of scope).
 
 ## Terms
 
@@ -165,9 +175,19 @@ every term the query reaches:
    `A` is inconsistent and `ask` raises `ValueError` like satassume.
 3. Otherwise (sat), check `A & P`: unsat gives `False`, anything else
    `None`.
-4. `unknown` from z3 (resource limit, incompleteness) at a step gives
-   `None`; when `A` cannot be shown consistent the answer is `None`, never
-   a definite value under a possibly inconsistent set.
+4. `unknown` from z3 (resource limit, incompleteness) at step 3 gives
+   `None`.
+
+The one case step 2 leaves open is `A & ~P` unsat and `A & P` unknown.
+z3assume answers `True` there. The argument: `A & ~P` unsat is a proof
+that `A` entails `P`, and that is what `True` means; it holds whether or
+not `A` is consistent. What can go wrong is only the raising: if `A` is in
+fact inconsistent but z3 cannot show it, satassume would raise
+`ValueError` where z3assume says `True`. The alternative (`None` unless `A`
+is shown consistent) throws away a proved entailment to protect an error
+signal, and makes the answer depend on how hard the consistency check is
+rather than on the entailment. This is open question 6; Tilo may prefer
+`None`.
 
 Unsupported input (matrix predicates, unregistered custom predicates,
 terms outside the encoding) is opaque: a predicate it applies becomes a
@@ -175,11 +195,23 @@ free Boolean and a term a free value, so it can only weaken an answer. A
 proposition about an out-of-scope thing is `None` (satassume's
 `out_of_scope` categories are kept).
 
-Answers are deterministic: each check runs under z3's `rlimit` (a count of
-z3's internal steps, not wall time), the random seeds are fixed, and the
-assertions are built in a fixed order (the SymPy argument order, never a
-`set` iteration or a hash order). A memo of answers keyed by `(P, A)` is
-kept, as satassume does; it cannot change an answer.
+Answers are meant to be deterministic: each check runs under z3's
+`rlimit` (a count of z3's internal steps, not wall time), the random seeds
+are fixed, and the assertions are built in a fixed order (the SymPy
+argument order, never a `set` iteration or a hash order). A memo of
+answers keyed by `(P, A)` is kept, as satassume does; it cannot change an
+answer.
+
+One exception: z3 does not check `rlimit` everywhere (a nonlinear sat
+check was seen to overrun its rlimit by 68% and run for seconds), so each
+check also has a wall-clock backstop of 10 s. A check stopped by the
+backstop is `unknown`, so the answer is `None`, and whether a check near
+the backstop finishes depends on the machine and its load: such answers
+are not deterministic. The backstop is set far above the rlimit's usual
+cost so that it fires only in these pathological cases; every firing is
+counted (`ask.last["timeout"]`) and the comparisons report the count, so a
+query that hits it is visible and can be fixed in the encoding (by a
+smaller problem, not a larger limit).
 
 satassume answers under the part of `A` connected to `P` unless the whole
 of `A` is inconsistent. z3assume gives z3 the whole of `A`: by monotonicity
@@ -199,22 +231,33 @@ The first slice is the eleven predicates `real`, `rational`, `integer`,
 
 ## Open questions for Tilo
 
-1. Can a symbol be `nan`? The design says no: `nan` comes only from the
-   constant itself and from undefined operations (`oo - oo`). If symbols
-   could be `nan`, `ask(Q.finite(x + 1), Q.finite(x))` would be `None`
-   (satassume and SymPy say `True`).
-2. Floats: satassume answers `Q.positive(0.5)` `True` and
-   `Q.integer(2.0)`, `Q.rational(0.5)` `None`. An exact encoding of a Float
-   as its binary value would make the last two `True`. The proposal: a Float
-   is a real in a small interval around its value with its exact sign, and
-   no rationality facts. Is that the convention you want?
-3. Are SymPy's arithmetic conventions on its special numbers (`oo - oo =
-   nan`, `0*oo = nan`, `1/0 = zoo`, `x**0 = 1` even for `x = nan`) the
-   definitions z3assume should follow? Each could instead leave the result
-   free (fewer definite answers, no convention).
-4. Is the whole-set answer (more definite than satassume's relevance split,
-   same raising) acceptable, or should z3assume reproduce satassume's
-   answers exactly where they differ?
-5. The comparison counts z3assume as wrong only where the two disagree on a
-   definite answer. Should the comparison also run against SymPy's own
-   `ask` (as satassume's `compare.py` does), with the same #247 standard?
+Each question has a default, applied until Tilo answers (relayed by
+architect-14, 23 Oct): where satassume's docs fix a convention, z3assume
+adopts it and cites it; otherwise the default below stands, marked "Tilo
+may change".
+
+1. Can a symbol be `nan`? Default, adopted from satassume: no (see
+   "Values"). If symbols could be `nan`, `ask(Q.finite(x + 1),
+   Q.finite(x))` would be `None`.
+2. Floats. satassume deliberately does not read Floats (its
+   docs/theories.md and overview.md "Known gaps": SymPy compares
+   `Float(0.1) > 1/10` exactly but decides `Eq` at the Float's precision,
+   so no fixed reading agrees with SymPy everywhere), yet answers
+   `Q.positive(0.5)` True. Default, Tilo may change: a Float is opaque for
+   now; the next step makes it a real with its exact sign in an interval
+   with rational endpoints around its value, with no rationality, integer
+   or equality facts.
+3. Special values. Default: satassume's conventions (`1/0 = zoo`,
+   `0**0 = 1`, `nan` is no number, the special-values table of
+   satassume#293); where satassume is silent, SymPy's total conventions
+   (`1/oo = 0`, `x**0 = 1` even at `x = nan`), Tilo may change. Each could
+   instead leave the result free (fewer definite answers, no convention).
+4. Whole-set answers. Default (architect-14): answer under the whole of
+   `A` (more definite than satassume's relevance split, same raising);
+   comparisons report the difference as "more definite", not as a
+   disagreement.
+5. A third comparison column with SymPy's own `ask`, under the same #247
+   standard. Default: only where it is cheap to compute; never as ground
+   truth.
+6. `A & ~P` unsat with `A & P` unknown: `True` (default, see "Answering",
+   Tilo may change) or `None`.
