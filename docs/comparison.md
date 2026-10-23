@@ -159,6 +159,6 @@ and 0.89 s at most on the stream sample (gate2: 12, 49, 197 ms, 0.80 s);
 satassume about 0.5 ms. Each query is two fresh z3 checks. Both tools
 answer a repeated `(prop, assum)` pair from a memo (z3assume's tool from
 its own per-worker memo), so repeats cost little on both sides. No check
-hit the 10 s backstop; 194 checks on the full stream came back `unknown`
+hit the 10 s backstop; on the full stream 195 checks (in 194 queries) came back `unknown`
 from the rlimit or from z3's incompleteness (the answer is then None).
 The setup is in `~/dev/z3assume-bench/` on Tilo's machine.
