@@ -19,11 +19,14 @@ from sympy.core.power import Pow
 from sympy.core.relational import Relational
 from sympy.functions.elementary.complexes import Abs, conjugate, im as Im, re as Re, sign
 from sympy.functions.elementary.exponential import exp, log
+from sympy.functions.elementary.hyperbolic import (acosh, acoth, asinh, atanh, cosh, coth, csch, sech, sinh,
+                                                   tanh)
+from sympy.functions.elementary.trigonometric import acos, acot, asin, atan, cos, cot, csc, sec, sin, tan
 from sympy.logic.boolalg import (And, BooleanFalse, BooleanTrue, Equivalent, ITE, Implies, Not, Or,
                                  Xor)
 from sympy.assumptions.assume import AppliedPredicate
 
-from .bounds import exp_bounds, log_bounds
+from .bounds import cosh_sinh_bounds, exp_bounds, log_bounds, sin_cos_bounds
 from .predicates import BASIS, DEFINITIONS, PREDICATES, RULES
 from .primes import is_prime
 
@@ -58,6 +61,22 @@ CONSTANTS = {
 #: need more bits than this gets only its sign: its interval's endpoints
 #: would be rationals of thousands of digits (``Float('1e100000')``).
 FLOAT_EXP_BOUND = 4096
+
+
+#: The twelve circular and hyperbolic functions (docs/design.md "Terms"):
+#: (family, numerator, denominator), the value being numerator/denominator
+#: with "E" the even function of the family (cos, cosh), "O" the odd one
+#: (sin, sinh), 1 the number one and None no denominator.
+TRIG = {
+    cos: ("circ", "E", None), sin: ("circ", "O", None), tan: ("circ", "O", "E"),
+    cot: ("circ", "E", "O"), sec: ("circ", 1, "E"), csc: ("circ", 1, "O"),
+    cosh: ("hyp", "E", None), sinh: ("hyp", "O", None), tanh: ("hyp", "O", "E"),
+    coth: ("hyp", "E", "O"), sech: ("hyp", 1, "E"), csch: ("hyp", 1, "O"),
+}
+
+#: The inverse functions (SymPy's principal branches), by the value of the
+#: forward function at 0 (0, 1, or None for the pole of cot and coth).
+INVERSE = {asin: 0, acos: 1, atan: 0, acot: None, asinh: 0, acosh: 1, atanh: 0, acoth: None}
 
 
 class Unsupported(Exception):
@@ -103,6 +122,7 @@ class Encoder:
         self.opaque = {}
         self._congruent = set()
         self._pairs = []
+        self._trig = {}
         self._n = 0
 
     def _count(self) -> int:
@@ -218,6 +238,10 @@ class Encoder:
             self._log(t, self.term(e.args[0]))
         elif isinstance(e, (Abs, Re, Im, conjugate, sign)) and len(e.args) == 1:
             self._complex_part(t, type(e), self.term(e.args[0]))
+        elif type(e) in TRIG and len(e.args) == 1:
+            self._trig_function(t, *TRIG[type(e)], self.term(e.args[0]))
+        elif type(e) in INVERSE and len(e.args) == 1:
+            self._inverse(t, type(e), self.term(e.args[0]))
         else:
             self._opaque(t, e)
 
@@ -588,6 +612,303 @@ class Encoder:
             b = log_bounds(abs(Fraction(int(w.p), int(w.q))))
             if b is not None:
                 self._add(t.re > self._q(b[0]), t.re < self._q(b[1]))
+
+    # -- circular and hyperbolic functions ------------------------------
+
+    def _component(self, z: Term, part: str):
+        """``re`` or ``im`` of ``z`` (a z3 real), and its value when ``z`` is
+        a literal rational ``r`` or ``r*I`` (else None)."""
+        u = z.re if part == "re" else z.im
+        w, r = z.expr, None
+        if isinstance(w, Rational):
+            r = Fraction(int(w.p), int(w.q)) if part == "re" else Fraction(0)
+        elif w is S.ImaginaryUnit:
+            r = Fraction(0) if part == "re" else Fraction(1)
+        elif isinstance(w, Mul) and len(w.args) == 2 and w.args[1] is S.ImaginaryUnit \
+                and isinstance(w.args[0], Rational):
+            c = w.args[0]
+            r = Fraction(0) if part == "re" else Fraction(int(c.p), int(c.q))
+        return u, r
+
+    def _pi_multiple(self, z: Term, part: str):
+        """The term of ``c`` when ``z`` is ``pi*c`` (part ``re``) or
+        ``I*pi*c`` (part ``im``), a product with these factors; then, for
+        real ``c``, that part of ``z`` is ``pi*c``."""
+        w = z.expr
+        if not isinstance(w, Mul) or S.Pi not in w.args or (S.ImaginaryUnit in w.args) != (part == "im"):
+            return None
+        rest = list(w.args)
+        rest.remove(S.Pi)
+        if part == "im":
+            rest.remove(S.ImaginaryUnit)
+        return self.term(Mul(*rest))
+
+    def _circ(self, z: Term, part: str):
+        """``(cos u, sin u)`` for the real ``u`` = that part of ``z``, as two
+        fresh reals ``C``, ``S``, valid when ``z`` is finite.  The facts:
+        ``C**2 + S**2 = 1`` (and so both in ``[-1, 1]``); ``cos 0 = 1``,
+        ``sin 0 = 0``; the signs of ``cos u`` and ``sin u`` for ``-pi <= u
+        <= pi``, linear in ``u`` and the ``pi`` term, as for ``exp``:
+        ``sin u > 0`` on ``(0, pi)`` and ``< 0`` on ``(-pi, 0)``, ``cos u >
+        0`` for ``|u| < pi/2``, ``= 0`` at ``|u| = pi/2``, ``< 0`` for
+        ``pi/2 < |u| <= pi``, and ``(C, S) = (-1, 0)`` at ``u = +-pi``.
+        For ``u = pi*c`` with real ``c`` (``_pi_multiple``):
+        ``sin(pi*c) = 0`` iff ``c`` is an integer (the zeros of ``sin`` are
+        the integer multiples of ``pi``), and then ``cos(pi*c) = (-1)**c``.
+        At a rational point ``r``, ``C`` and ``S`` lie in the rational
+        enclosures of ``bounds.sin_cos_bounds`` (Taylor polynomial with
+        Lagrange's remainder).  Nothing about periodicity outside
+        ``[-pi, pi]`` for other arguments (it needs an integer witness for
+        ``u/pi``, see ``_exp``)."""
+        key = (z.expr, part, "circ")
+        if key in self._trig:
+            return self._trig[key]
+        u, r = self._component(z, part)
+        cos_u, sin_u = self._fresh_real("cos"), self._fresh_real("sin")
+        self._trig[key] = (cos_u, sin_u)
+        pi = self.term(S.Pi).re
+        C, S_ = cos_u, sin_u
+        self._add(z3.Implies(z.fin, z3.And(
+            C * C + S_ * S_ == 1, C >= -1, C <= 1, S_ >= -1, S_ <= 1,
+            z3.Implies(u == 0, z3.And(C == 1, S_ == 0)),
+            z3.Implies(z3.And(u > 0, u < pi), S_ > 0),
+            z3.Implies(z3.And(u < 0, u > -pi), S_ < 0),
+            z3.Implies(z3.And(2 * u < pi, 2 * u > -pi), C > 0),
+            z3.Implies(z3.Or(2 * u == pi, 2 * u == -pi), C == 0),
+            z3.Implies(z3.Or(z3.And(2 * u > pi, u <= pi), z3.And(2 * u < -pi, u >= -pi)), C < 0),
+            z3.Implies(z3.Or(u == pi, u == -pi), z3.And(C == -1, S_ == 0)))))
+        c = self._pi_multiple(z, part)
+        if c is not None:
+            ok = z3.And(z.fin, c.real())
+            one = z3.RealVal(1, self.ctx)
+            self._add(z3.Implies(z3.And(ok, c.atoms["integer"]), z3.And(S_ == 0, C == z3.If(c.r == 0, one, -one))),
+                      z3.Implies(z3.And(ok, z3.Not(c.atoms["integer"])), S_ != 0))
+        if r is not None and r != 0:
+            b = sin_cos_bounds(r)
+            if b is not None:
+                (slo, shi), (clo, chi) = b
+                self._add(z3.Implies(z.fin, z3.And(S_ > self._q(slo), S_ < self._q(shi),
+                                                   C > self._q(clo), C < self._q(chi))))
+        return cos_u, sin_u
+
+    def _hyp(self, z: Term, part: str):
+        """``(cosh u, sinh u)`` for the real ``u`` = that part of ``z``, as
+        two fresh reals ``H``, ``K``, valid when ``z`` is finite:
+        ``H**2 - K**2 = 1``, ``H >= 1``, ``K`` has the sign of ``u`` and
+        ``|K| >= |u|`` (``sinh u = u + u**3/3! + ...``, all terms of the
+        sign of ``u``), ``cosh 0 = 1``, ``sinh 0 = 0``, and ``H + K = e**u``,
+        an exp pair (``_exp_pair``: positive, increasing, ``e**u >= 1 +
+        u``).  At a rational point ``r``, the enclosures of
+        ``bounds.cosh_sinh_bounds`` (from those of ``e**r``)."""
+        key = (z.expr, part, "hyp")
+        if key in self._trig:
+            return self._trig[key]
+        u, r = self._component(z, part)
+        H, K = self._fresh_real("cosh"), self._fresh_real("sinh")
+        self._trig[key] = (H, K)
+        self._add(z3.Implies(z.fin, z3.And(
+            H * H - K * K == 1, H >= 1, (K > 0) == (u > 0), (K < 0) == (u < 0),
+            z3.Implies(u >= 0, K >= u), z3.Implies(u <= 0, K <= u),
+            z3.Implies(u == 0, z3.And(H == 1, K == 0)))))
+        self._exp_pair(z.fin, u, H + K)
+        if r is not None and r != 0:
+            b = cosh_sinh_bounds(r)
+            if b is not None:
+                (clo, chi), (slo, shi) = b
+                self._add(z3.Implies(z.fin, z3.And(H > self._q(clo), H < self._q(chi),
+                                                   K > self._q(slo), K < self._q(shi))))
+        return H, K
+
+    def _even_odd(self, z: Term, family: str):
+        """The even and odd function of the family at finite ``z = a + b*I``,
+        each as a pair of fresh reals (shared by all functions of ``z``):
+        ``cos z = cos a cosh b - I sin a sinh b``, ``sin z = sin a cosh b
+        + I cos a sinh b`` (the addition theorems with ``cos(I*b) = cosh
+        b``, ``sin(I*b) = I sinh b``), and ``cosh z = cosh a cos b + I sinh
+        a sin b``, ``sinh z = sinh a cos b + I cosh a sin b`` (``cosh z =
+        cos(I*z)``, ``sinh z = -I sin(I*z)``)."""
+        key = (z.expr, family)
+        if key in self._trig:
+            return self._trig[key]
+        C, S_, H, K = self._quad(z, family)
+        if family == "circ":
+            parts = ((C, H), (-1, S_, K), (S_, H), (C, K))
+        else:
+            parts = ((H, C), (K, S_), (K, C), (H, S_))
+        vals = [self._fresh_product(z, *p) for p in parts]
+        res = self._trig[key] = ((vals[0], vals[1]), (vals[2], vals[3]))
+        return res
+
+    def _quad(self, z: Term, family: str):
+        """``C, S, H, K``: cos and sin of the circular part, cosh and sinh
+        of the hyperbolic part (``re``, ``im`` for the circular family,
+        ``im``, ``re`` for the hyperbolic one)."""
+        circ, hyp = ("re", "im") if family == "circ" else ("im", "re")
+        return self._circ(z, circ) + self._hyp(z, hyp)
+
+    def _fresh_product(self, z: Term, *factors):
+        """A fresh real equal to the product (a leading -1 negates it) when
+        ``z`` is finite."""
+        v = self._fresh_real("tv")
+        prod = factors[0] * factors[1] if len(factors) == 2 else -(factors[1] * factors[2])
+        self._add(z3.Implies(z.fin, v == prod))
+        return v
+
+    def _trig_function(self, t: Term, family: str, num, den, z: Term):
+        """``cos``, ``sin``, ``tan``, ``cot``, ``sec``, ``csc`` and their
+        hyperbolic counterparts of ``z``.
+
+        Special values: ``nan`` gives ``nan`` (satassume special-values
+        N1).  An infinite argument leaves the value free: the table has no
+        row for these functions (it names ``sin(oo)`` as a point no row
+        covers), and none of them has a limit at every infinity.
+
+        Finite ``z``: ``cos``, ``sin`` (``cosh``, ``sinh``) exactly by
+        their real and imaginary parts (``_even_odd``).  The other four are
+        quotients, ``tan = sin/cos``, ``cot = cos/sin``, ``sec = 1/cos``,
+        ``csc = 1/sin``, each ``n/d = n*conj(d)/|d|**2`` with the real
+        denominator ``|d|**2``, which is ``C**2 + K**2`` for ``d = cos z``
+        (``C**2*H**2 + S**2*K**2 = C**2*(1 + K**2) + (1 - C**2)*K**2``)
+        and ``S**2 + K**2`` for ``d = sin z``, likewise ``C**2 + K**2`` for
+        ``cosh`` and ``S**2 + K**2`` for ``sinh`` (``C, S, H, K`` as in
+        ``_even_odd``).  For ``tan`` the numerator is ``sin z *
+        conj(cos z) = (S*H + I*C*K)*(C*H + I*S*K) = S*C*(H**2 - K**2) +
+        I*H*K*(S**2 + C**2) = S*C + I*H*K``, for ``cot`` ``S*C - I*H*K``,
+        for ``tanh`` ``H*K + I*S*C``, for ``coth`` ``H*K - I*S*C``, and for
+        the reciprocals ``conj(d)``.  (A real denominator keeps z3's
+        nonlinear search small: ``t*d = n`` with complex ``d`` made it time
+        out on ``Q.algebraic(tan(x))``.)  Where the denominator is nonzero
+        the value ``t`` is finite with ``t*|d|**2 = n*conj(d)``; where
+        ``d = 0`` it is ``zoo``: ``1/0 = zoo`` (design.md, satassume's
+        convention) and ``n*zoo = zoo`` for the numerator ``n != 0``
+        (special-values M3; ``cos`` and ``sin`` have no common zero, as
+        ``cos**2 + sin**2 = 1``).  So ``tan(pi/2) = cot(0) = csc(0) =
+        sec(pi/2) = coth(0) = csch(0) = zoo``, as SymPy evaluates them.
+
+        Hermite-Lindemann: for algebraic ``z != 0`` the value is
+        transcendental or ``zoo``.  With ``w = e**(I*z)`` (``e**z`` for the
+        hyperbolic family), transcendental by Hermite-Lindemann (``I*z`` is
+        algebraic and nonzero): ``cos z = c`` would make ``w`` a root of
+        ``w**2 - 2*c*w + 1``, ``sin z = s`` of ``w**2 - 2*I*s*w - 1``, so
+        neither is algebraic; ``tan z = (w**2 - 1)/(I*(w**2 + 1)) = t``
+        gives ``(1 - I*t)*w**2 = 1 + I*t``, so for algebraic ``t`` either
+        ``w**2`` (and so ``w``) is algebraic or ``1 - I*t = 0 = 1 + I*t``,
+        impossible; ``cot``, ``sec``, ``csc`` are reciprocals of these,
+        and the reciprocal of a nonzero algebraic number is algebraic.  The
+        hyperbolic functions are the same with ``e**z`` (``cosh z = (w +
+        1/w)/2``, ...)."""
+        a, za = t.atoms, z.atoms
+        self._add(z3.Implies(z.nan, t.nan))
+        even, odd = self._even_odd(z, family)
+        pick = {"E": even, "O": odd}
+        if den is None:
+            v = pick[num]
+            self._add(z3.Implies(z.fin, z3.And(t.fin, t.re == v[0], t.im == v[1])))
+        else:
+            C, S_, H, K = self._quad(z, family)
+            norm = self._fresh_real("tnorm")
+            self._add(z3.Implies(z.fin, norm == (C * C if den == "E" else S_ * S_) + K * K))
+            if num == 1:                        # conj(d)
+                d = pick[den]
+                n = (d[0], -d[1])
+            else:                               # S*C +- I*H*K, or H*K +- I*S*C
+                sc, hk = self._fresh_product(z, S_, C), self._fresh_product(z, H, K)
+                sgn = 1 if num == "O" else -1
+                n = (sc, sgn * hk) if family == "circ" else (hk, sgn * sc)
+            self._add(z3.Implies(z3.And(z.fin, norm == 0), t.cinf),
+                      z3.Implies(z3.And(z.fin, norm != 0),
+                                 z3.And(t.fin, t.re * norm == n[0], t.im * norm == n[1])))
+        zero = z3.And(z.fin, z.re == 0, z.im == 0)
+        self._add(z3.Implies(z3.And(z.fin, za["algebraic"], z3.Not(zero)), z3.Not(a["algebraic"])))
+
+    def _inverse(self, t: Term, f, x: Term):
+        """The inverse functions, SymPy's principal branches.
+
+        Every branch of each is a right inverse where it is finite: the
+        principal values are logarithms of algebraic expressions in ``x``
+        (``asin x = -I*log(I*x + sqrt(1 - x**2))``, ``atan x = log((1 +
+        I*x)/(1 - I*x))/(2*I)``, ``acos = pi/2 - asin``, ``acot x = atan(1/x)``,
+        ``acot(0) = pi/2``, ``asinh x = log(x + sqrt(x**2 + 1))``, ...), and
+        ``e**log(v) = v`` for every branch of ``log`` and ``sqrt``, so a
+        finite value ``w`` of ``f^-1(x)`` satisfies ``f(w) = x``.  From
+        that alone:
+
+        - ``w = 0`` only if ``x = f(0)`` (``0`` for ``asin``, ``atan``,
+          ``asinh``, ``atanh``, ``1`` for ``acos``, ``acosh``; never for
+          ``acot``, ``acoth``, as ``cot(0) = coth(0) = zoo``); and ``w = 0``
+          at that point (the principal values: ``log 1 = 0``).
+        - Hermite-Lindemann: for algebraic ``x`` and finite ``w != 0``,
+          ``w`` is transcendental, since ``f(w)`` is transcendental or
+          ``zoo`` for algebraic ``w != 0`` (``_trig_function``).
+        - On the real axis, the principal values are the real inverse
+          functions where ``x`` is in the range of ``f`` on R: ``asin`` on
+          ``[-1, 1]`` into ``[-pi/2, pi/2]``, ``acos`` on ``[-1, 1]`` into
+          ``[0, pi]`` (decreasing: ``0`` only at 1, ``pi/2`` at 0, ``pi``
+          only at -1), ``atan`` on R into
+          ``(-pi/2, pi/2)``, ``acot`` on R into ``(-pi/2, pi/2]`` (SymPy's
+          range: ``atan(1/x)`` for ``x != 0``, ``pi/2`` at 0), ``asinh`` on
+          R, ``acosh`` on ``[1, oo)`` into ``[0, oo)``, ``atanh`` on
+          ``(-1, 1)``, ``acoth`` on ``|x| > 1``; the odd ones keep the sign
+          of ``x``.  For a real ``x`` outside that range (``|x| > 1`` for
+          ``asin``, ``acos``, ``atanh``; ``x < 1`` for ``acosh``; ``|x| <
+          1`` for ``acoth``) ``w`` is not real, since ``f(w) = x`` and
+          ``f`` maps the reals into its range.
+        - ``asin``, ``acos``, ``asinh``, ``acosh`` of a finite ``x`` are
+          finite: the logarithm's argument is never 0 (``(I*x + s)*(-I*x +
+          s) = s**2 + x**2 = 1`` for ``s**2 = 1 - x**2``, likewise for the
+          others).
+
+        ``nan`` gives ``nan`` (N1); infinities leave the value free (no
+        row; ``atan(oo) = pi/2`` is a limit nobody wrote down)."""
+        a, xa = t.atoms, x.atoms
+        ctx = self.ctx
+        pi = self.term(S.Pi).re
+        xr, w = x.re, t.re
+        real = x.real()
+        tzero = z3.And(t.fin, t.re == 0, t.im == 0)
+        treal = z3.And(t.fin, t.im == 0)
+        self._add(z3.Implies(x.nan, t.nan))
+        f0 = INVERSE[f]
+        if f0 is None:
+            self._add(z3.Implies(z3.And(x.fin, t.fin), z3.Not(tzero)))
+        else:
+            self._add(z3.Implies(z3.And(x.fin, tzero), z3.And(xr == f0, x.im == 0)))
+            self._int_value(t, z3.And(x.fin, xr == f0, x.im == 0), z3.IntVal(0, ctx))
+        self._add(z3.Implies(z3.And(x.fin, xa["algebraic"], t.fin, z3.Not(tzero)), z3.Not(a["algebraic"])))
+        if f in (asin, acos, asinh, acosh):
+            self._add(z3.Implies(x.fin, t.fin))
+        sign = z3.And((w > 0) == (xr > 0), (w < 0) == (xr < 0))
+        inside = outside = None
+        if f is asin:
+            inside, outside = z3.And(xr >= -1, xr <= 1), z3.Or(xr < -1, xr > 1)
+            facts = z3.And(sign, 2 * w >= -pi, 2 * w <= pi, z3.Implies(xr == 1, 2 * w == pi),
+                           z3.Implies(xr == -1, 2 * w == -pi))
+        elif f is acos:
+            inside, outside = z3.And(xr >= -1, xr <= 1), z3.Or(xr < -1, xr > 1)
+            facts = z3.And(w >= 0, w <= pi, (w > 0) == (xr < 1), (2 * w < pi) == (xr > 0),
+                           (2 * w == pi) == (xr == 0), (w < pi) == (xr > -1))
+        elif f is atan:
+            inside = z3.BoolVal(True, ctx)
+            facts = z3.And(sign, 2 * w > -pi, 2 * w < pi)
+        elif f is acot:
+            inside = z3.BoolVal(True, ctx)
+            facts = z3.And(2 * w > -pi, 2 * w <= pi, z3.Implies(xr > 0, z3.And(w > 0, 2 * w < pi)),
+                           z3.Implies(xr < 0, w < 0), z3.Implies(xr == 0, 2 * w == pi))
+        elif f is asinh:
+            inside = z3.BoolVal(True, ctx)
+            facts = sign
+        elif f is acosh:
+            inside, outside = xr >= 1, xr < 1
+            facts = z3.And(w >= 0, (w > 0) == (xr > 1))
+        elif f is atanh:
+            inside, outside = z3.And(xr > -1, xr < 1), z3.Or(xr < -1, xr > 1)
+            facts = sign
+        else:  # acoth
+            inside, outside = z3.Or(xr < -1, xr > 1), z3.And(xr > -1, xr < 1)
+            facts = sign
+        self._add(z3.Implies(z3.And(real, inside), z3.And(treal, facts)))
+        if outside is not None:
+            self._add(z3.Implies(z3.And(real, outside), z3.Not(treal)))
 
     def _q(self, f: Fraction):
         return z3.Q(f.numerator, f.denominator, self.ctx) if f.denominator != 1 else z3.RealVal(f.numerator, self.ctx)

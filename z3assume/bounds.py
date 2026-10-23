@@ -143,3 +143,75 @@ def log_bounds(r):
         slo, shi = _atanh2((s - 1) / (s + 1))
         lo, hi = lo + slo, hi + shi
     return _out(lo, hi)
+
+
+#: Largest |r| for sin and cos (the Taylor terms grow to about e**|r|
+#: before they fall, so the work grows with |r|).
+TRIG_MAX = 256
+
+
+def sin_cos_bounds(r):
+    """``(slo, shi), (clo, chi)`` with ``slo < sin(r) < shi`` and
+    ``clo < cos(r) < chi`` for a rational ``r != 0``, or None.
+
+    No argument reduction (it would need an enclosure of ``pi``): for
+    ``x = |r|`` the Taylor polynomials ``T_N`` of degree ``N`` of ``sin``
+    and ``cos`` at 0 satisfy ``|f(x) - T_N(x)| <= x**(N+1)/(N+1)!``
+    (Lagrange's remainder; every derivative of ``sin`` and ``cos`` is
+    ``+-sin`` or ``+-cos``, bounded by 1 on R).  The terms ``x**n/n!`` are
+    kept as intervals rounded outward to multiples of ``2**-p`` (``x > 0``,
+    so each is increasing in the previous one), and the sums with their
+    signs are exact sums of such multiples.  ``p = PREC + 2*ceil(x)``: a
+    rounding error is multiplied by ``x/n`` in each later term, by at most
+    ``e**x < 4**x`` in all.  The loop stops when the next term's upper
+    bound, which bounds the remainder, is at most ``2**-(PREC - 8)``
+    (rounded up, a term never falls below ``2**-p``); that bound plus one
+    more ``2**-PREC`` is added on both sides, which makes the enclosure
+    strict.  ``sin`` is odd and
+    ``cos`` even."""
+    r = Fraction(r)
+    if r == 0 or abs(r) > TRIG_MAX or r.denominator > SIZE_MAX or abs(r.numerator) > SIZE_MAX:
+        return None
+    x = abs(r)
+    p = PREC + 2 * (-floor(-x))
+    eps = Fraction(1, 1 << (PREC - 8))
+    tl = th = _ONE                       # x**0/0!
+    s = [Fraction(0), Fraction(0)]       # sin: lo, hi
+    c = [_ONE, _ONE]                     # cos: lo, hi
+    n = 0
+    while True:
+        n += 1
+        tl, th = _down(tl * x / n, p), _up(th * x / n, p)
+        if th <= eps and n > x:
+            break
+        acc = s if n % 2 else c
+        if n % 4 in (1, 0):              # + x/1!, + x**4/4!, ...
+            acc[0] += tl
+            acc[1] += th
+        else:                            # - x**2/2!, - x**3/3!, ...
+            acc[0] -= th
+            acc[1] -= tl
+    # th bounds the remainder x**n/n! after degree n - 1
+    pad = th + Fraction(1, 1 << PREC)
+    slo, shi = s[0] - pad, s[1] + pad
+    clo, chi = c[0] - pad, c[1] + pad
+    if r < 0:
+        slo, shi = -shi, -slo
+    return _out(slo, shi), _out(clo, chi)
+
+
+def cosh_sinh_bounds(r):
+    """``(clo, chi), (slo, shi)`` with ``clo < cosh(r) < chi`` and
+    ``slo < sinh(r) < shi`` for a rational ``r != 0``, or None.
+
+    From ``lo < e**r < hi`` (``exp_bounds``): ``e**-r = 1/e**r`` lies in
+    ``(1/hi, 1/lo)``; ``cosh = (e**r + e**-r)/2`` is the half sum of the
+    two enclosures, and ``sinh = (v - 1/v)/2`` with ``v = e**r`` is
+    increasing in ``v > 0``, so its bounds are its values at ``lo`` and
+    ``hi``.  All strict, as the enclosure of ``e**r`` is."""
+    b = exp_bounds(r)
+    if b is None:
+        return None
+    lo, hi = b
+    return (_out((lo + 1 / hi) / 2, (hi + 1 / lo) / 2),
+            _out((lo - 1 / lo) / 2, (hi - 1 / hi) / 2))

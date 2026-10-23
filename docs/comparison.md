@@ -156,6 +156,7 @@ move to "agree", or to "more" with an argument given here.
 | Floats (#9) | 261 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
 | one z3 context per query (#10) | 261 | 368 | 0 | none |
 | `exp`, `log` (#11) | 228 | 313 | 0 | 2 stream (distinct) |
+| trigonometric and hyperbolic (#12) | 197 | 200 | 0 | 9 stream, 7 gate2 (13 distinct) |
 
 Arguments for the 16 new answers of the `Abs` step:
 
@@ -240,6 +241,58 @@ main, 38.5 s and 36.7 s for this step. The z3 problem of a query without
 `exp`, `log` or `E` is unchanged (checked on the slowest movers), yet the
 time of such queries alone varies by up to 5x between runs under this
 load, so this gap is not measured well; a pinned benchmark was not run.
+
+Arguments for the 16 new answers of the trigonometric and hyperbolic
+step (design.md "Terms: `sin`, `cos`, ..."; satassume None, z3assume
+False unless stated):
+
+- **`sin` on `(0, pi)`** (stream 3260 `Q.zero(sin(x))` under
+  `Q.positive(x) & Q.le(x, pi/2)`, 5176 under `Q.ge(x, 1) & Q.le(x, 2)`,
+  5214 under `Q.eq(x, pi/2)`): a relation holds only between extended
+  reals, so `x` is a finite real in `(0, pi)` (`2 < pi`), where
+  `sin x > 0`.
+- **`tan` without a zero in the interval** (stream 4048, 4080, 5336,
+  5340, 6754, `Q.zero(tan(x))` under `0 < x < pi/2`, `-pi/2 < x < 0`,
+  `0 < x < pi`, `-pi < x < 0`): `x` is a finite real with `sin x != 0`
+  (the sign of `sin` on `(-pi, 0)` and `(0, pi)`); `tan x` is either
+  `sin x/cos x != 0` or, where `cos x = 0`, `zoo` (`1/0 = zoo`, row M3),
+  and neither is zero.
+- **`x*tan(t)` real for `-pi/2 < t < pi/2`** (stream 6771, True, under
+  `Q.positive(x)`): `t` is a finite real with `cos t > 0`, so `tan t =
+  sin t/cos t` is real, and so is its product with the real `x`.
+- **`cosh(1)**2 - sinh(1)**2 - 1` and `cos(1)**2 + sin(1)**2 - 1` are 0**
+  (gate2 1621, 1763, 1784, 1810, 1831, `Q.negative`/`Q.positive` of the
+  first, 1661 `Q.nonzero` of the second): `cosh**2 - sinh**2 = 1` and
+  `cos**2 + sin**2 = 1` at a real point; the value is the number 0.
+- **`acos(x)` for `x >= 1` is not positive** (gate2 2169, under
+  `Q.nonnegative(x - 1)`): `acos(1) = 0`, and for real `x > 1` `acos(x)`
+  is not real, as `cos` maps the reals into `[-1, 1]` and `cos(acos x) =
+  x` for every branch.
+
+The other 31 stream and 113 gate2 answers that moved now agree with
+satassume: Hermite-Lindemann for the twelve functions and the inverse
+ones (`Q.rational(sin(7))`, `Q.algebraic(acos(x))` given
+`Q.algebraic(x) & Q.nonzero(x - 1)`, `Q.rational(cot(x))` given
+`Q.rational(x)` with `cot(0) = zoo`), `cosh x >= 1` and the reciprocals
+never zero (`Q.zero(sech(x))` given `Q.complex(x)`), `sin`, `cos` of a
+real real, the signs of `atan`, `asin`, `acos`, `acot` on the real axis,
+and `sin(2) > 0`. Still "less": `cosh`, `coth` at `oo` (6 stream queries
+under `Q.extended_nonnegative(x)`, `Q.ge(x, 0)`, ...: an infinite
+argument is free, no row of satassume's table gives `cosh(oo)`), `sqrt`
+(`Q.algebraic(sqrt(sin(7)))`, step 5), and `acot` of an imaginary
+argument (gate2 2172, not encoded).
+
+No check hit the 10 s backstop on either stream. Wall times (6 jobs,
+shared machine, load average 4 to 7): stream 112 s, gate2 17 s; the
+summed query times 669 s and 97 s, against 794 s and 136 s for the
+`exp`/`log` step's run (load average 7 to 12), so the step costs no
+measurable time on these streams. A first version encoded `tan = sin/cos`
+as `t*cos = sin` with a complex denominator; it took 10 s on gate2 2005
+(`Q.algebraic(tan(x))` given `Q.algebraic(x)`, None either way) and was
+replaced by the real denominator `|cos z|**2`, 0.3 s alone. Probes with a
+non-real argument of `tan` (`Q.algebraic(tan(x))` given `Q.complex(x)`)
+still can take seconds, depending on what the z3 context saw before:
+nonlinear model search, the answer None either way.
 
 ## Speed
 
