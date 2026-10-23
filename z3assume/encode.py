@@ -12,7 +12,7 @@ from sympy import Basic, Symbol
 from sympy.core.add import Add
 from sympy.core.mul import Mul
 from sympy.core.numbers import (ComplexInfinity, ImaginaryUnit, Infinity, Integer, NaN,
-                                NegativeInfinity, Rational)
+                                NegativeInfinity, NumberSymbol, Rational)
 from sympy.core.power import Pow
 from sympy.core.relational import Relational
 from sympy.logic.boolalg import (And, BooleanFalse, BooleanTrue, Equivalent, ITE, Implies, Not, Or,
@@ -21,6 +21,32 @@ from sympy.assumptions.assume import AppliedPredicate
 
 from .predicates import BASIS, DEFINITIONS, PREDICATES, RULES
 from .primes import is_prime
+
+
+#: SymPy's named constants (``NumberSymbol``), by class name: the first 20
+#: decimals ``d`` of the published expansion, so ``d < c < d + 10**-20``
+#: (strictly: the published digits after the 20th are neither all 0 nor
+#: all 9), and what is proven about c: "transcendental",
+#: or the coefficients (leading first) of an irreducible integer polynomial
+#: with c as a root (algebraic, the interval picks the root; irrational by
+#: the rational root test, its only candidates +-1 are no roots), or None
+#: when rationality and algebraicity are open problems (never assumed).
+#: The digits were cross-checked with mpmath.
+CONSTANTS = {
+    # OEIS A000796; transcendental: Lindemann 1882
+    "Pi": ("3.14159265358979323846", "transcendental"),
+    # OEIS A001113; transcendental: Hermite 1873
+    "Exp1": ("2.71828182845904523536", "transcendental"),
+    # OEIS A001622; (1 + sqrt(5))/2 is the positive root of x**2 - x - 1
+    # (at +-1: -1, 1)
+    "GoldenRatio": ("1.61803398874989484820", (1, -1, -1)),
+    # OEIS A058265; the real root of x**3 - x**2 - x - 1 (at +-1: -2, -2)
+    "TribonacciConstant": ("1.83928675521416113255", (1, -1, -1, -1)),
+    # OEIS A001620; real, rationality open
+    "EulerGamma": ("0.57721566490153286060", None),
+    # OEIS A006752; real (sum of (-1)**n/(2n+1)**2), rationality open
+    "Catalan": ("0.91596559417721901505", None),
+}
 
 
 class Unsupported(Exception):
@@ -153,6 +179,9 @@ class Encoder:
             self._add(t.cinf)
         elif isinstance(e, NaN):
             self._add(t.nan)
+        elif (isinstance(e, NumberSymbol) and type(e).__name__ in CONSTANTS
+              and type(e).__module__ == "sympy.core.numbers"):     # not a user class
+            self._constant(t, *CONSTANTS[type(e).__name__])
         elif isinstance(e, Symbol):
             self._add(z3.Not(t.nan))
             self._declared(t, e)
@@ -164,6 +193,22 @@ class Encoder:
             self._power(t, self.term(e.base), int(e.exp))
         else:
             self._opaque(t, e)
+
+    def _constant(self, t: Term, digits: str, facts):
+        """A named constant: a real in its 20-digit interval, plus its
+        proven facts (``CONSTANTS``)."""
+        whole, frac = digits.split(".")
+        lo = int(whole + frac)
+        den = 10 ** len(frac)
+        self._add(t.fin, t.im == 0, t.re > z3.Q(lo, den, self.ctx), t.re < z3.Q(lo + 1, den, self.ctx))
+        a = t.atoms
+        if facts == "transcendental":
+            self._add(z3.Not(a["algebraic"]))
+        elif facts is not None:
+            v = z3.RealVal(facts[0], self.ctx)
+            for c in facts[1:]:
+                v = v * t.re + c
+            self._add(v == 0, a["algebraic"], z3.Not(a["rational"]))
 
     def _declared(self, t: Term, s):
         """Old-style assumptions of a symbol are facts about it."""
@@ -241,6 +286,8 @@ class Encoder:
         self._add(z3.Implies(z3.And(anyinf, nonzero, allext), z3.If(neg, t.ninf, t.pinf)))
 
     def _power(self, t: Term, b: Term, n: int):
+        # n != 0: _node encodes b**0 as 1; the closure axioms below need it
+        assert n != 0
         m = abs(n)
         # b**m by repeated squaring over fresh reals
         re, im, k = None, None, None
@@ -267,6 +314,10 @@ class Encoder:
                       z3.Implies(b.ninf, t.pinf if n % 2 == 0 else t.ninf))
             for p in ("rational", "algebraic"):
                 self._add(z3.Implies(z3.And(b.fin, ba[p]), a[p]))
+            # b is a root of x**n - t: algebraic t makes b algebraic (the
+            # algebraic numbers are algebraically closed); pi**2 is
+            # transcendental
+            self._add(z3.Implies(z3.And(b.fin, a["algebraic"]), ba["algebraic"]))
         else:
             # t = 1/b**m: exact for b finite nonzero, zoo for 0, 0 for an infinity
             norm = re * re + im * im
@@ -276,6 +327,8 @@ class Encoder:
                       z3.Implies(b.infinite(), z3.And(t.fin, t.re == 0, t.im == 0)))
             for p in ("rational", "algebraic"):
                 self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), ba[p]), a[p]))
+            # b is a root of t*x**m - 1 (algebraic closure, as above)
+            self._add(z3.Implies(z3.And(b.fin, z3.Not(ba["zero"]), a["algebraic"]), ba["algebraic"]))
 
     def _fresh_int(self, v):
         k = z3.Int(f"pk{self._count()}", self.ctx)

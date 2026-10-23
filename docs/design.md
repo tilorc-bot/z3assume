@@ -128,11 +128,23 @@ difference, harmless while non-commutative input is out of scope).
 - `Pow` with an integer exponent `n`: `n > 0` is the product; `n < 0` is the
   inverse of the product: `1/z` exact for finite nonzero `z`
   (`conj(z)/|z|**2`), `zoo` for `0`, `0` for an infinity.
+- Named constants (`NumberSymbol`): `pi`, `E`, `GoldenRatio`,
+  `TribonacciConstant`, `EulerGamma`, `Catalan` are finite reals strictly
+  inside the interval `(d, d + 10**-20)`, `d` the 20-decimal truncation of
+  the published expansion (OEIS, cited per constant in `encode.py`), plus
+  their proven facts: `pi`, `E` transcendental (Lindemann, Hermite);
+  `GoldenRatio`, `TribonacciConstant` exact as the root of `x**2 - x - 1`,
+  `x**3 - x**2 - x - 1` in the interval, algebraic and irrational (rational
+  root test). Open problems stay open: nothing about the rationality or
+  algebraicity of `EulerGamma` and `Catalan`.
 - Field closure, as ground axioms per node (z3 has no theory of the
   rationals inside the reals): a sum, product or integer power of rational
   (algebraic) values is rational (algebraic); a sum with all terms but one
-  rational and that one real irrational is irrational; likewise for a
-  product with nonzero rational factors.
+  rational and that one real irrational is irrational, and one with all
+  terms but one algebraic and that one transcendental is transcendental;
+  likewise for a product with nonzero rational (algebraic) factors. The
+  base of an algebraic integer power `b**n` (`b` finite, nonzero for
+  `n < 0`) is algebraic: the algebraic numbers are algebraically closed.
 
 Later steps, each with its own ground axioms, stated with the theorem that
 justifies it:
@@ -147,9 +159,6 @@ justifies it:
   `sin**2 + cos**2 = 1`, Lindemann-Weierstrass for transcendence, ...).
   Applied undefined functions `f(x)` become uninterpreted functions too, so
   congruence (`x = y -> f(x) = f(y)`) is z3's.
-- `pi`, `E`, other named constants: an interval with rational endpoints and
-  their proven number-theoretic facts (`pi`, `E` transcendental); open
-  problems (is `EulerGamma` rational?) stay open.
 - `Abs`, `re`, `im`, `conjugate`, `sign`: exact in the pair encoding.
 
 ## Relations
@@ -228,7 +237,7 @@ optimization, never as a change of answers.
 Floats (open question 2); `polar`; matrices and matrix predicates;
 non-commutative symbols; custom predicates and satassume's extension API
 (`register`); `refine`; and, until their step, rational and symbolic
-powers, transcendental and special functions, named constants, relations.
+powers, transcendental and special functions, relations.
 The first slice is the eleven predicates `real`, `rational`, `integer`,
 `positive`, `negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`,
 `even`, `odd` on polynomial and rational expressions.
