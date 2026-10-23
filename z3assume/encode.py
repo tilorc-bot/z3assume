@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from fractions import Fraction
+from math import lcm
 
 import z3
 from sympy import Basic, S, Symbol
@@ -152,6 +153,7 @@ class Encoder:
         self._congruent = set()
         self._pairs = []
         self._trig = {}
+        self._lin = {}
         self._n = 0
 
     def _count(self) -> int:
@@ -169,6 +171,7 @@ class Encoder:
         args = [self.term(a) for a in e.args] if isinstance(e, (Add, Mul)) else None
         t = Term(e, len(self.terms), self.ctx)
         self.terms[e] = t
+        self._lin[t] = self._scaled(t, e, args)
         self._shape(t)
         self._node(t, e, args)
         return t
@@ -202,7 +205,7 @@ class Encoder:
         # integer witnesses: z3 reasons about integers in the Int sort
         self._add(z3.Implies(z3.And(notnan, a["integer"]),
                              z3.And(t.real(), t.re == z3.ToReal(t.k), t.k == 2 * t.h + t.r, t.r >= 0, t.r <= 1)),
-                  z3.Implies(z3.And(notnan, t.real(), z3.Not(a["integer"])), z3.Not(z3.IsInt(t.re))),
+                  self._non_integer(t),
                   z3.Implies(notnan, a["even"] == z3.And(a["integer"], t.r == 0)),
                   z3.Implies(z3.And(notnan, a["prime"]), z3.And(a["integer"], t.k >= 2)),
                   z3.Implies(z3.And(notnan, a["integer"], z3.Or(t.k == 2, t.k == 3)), a["prime"]),
@@ -212,6 +215,47 @@ class Encoder:
         for prem, concl in RULES:
             self._add(z3.Implies(z3.And([_lit(a, p, s) for p, s in prem]),
                                  z3.Or([_lit(a, p, s) for p, s in concl])))
+
+    def _non_integer(self, t: Term):
+        """A finite real non-integer: ``Not(IsInt(re_t))``, unless ``t`` has a
+        scaled witness ``n/d`` with ``d > 1``: under its ``cond`` the integer
+        facts of ``t`` are stated over the integers instead (``t`` is an
+        integer iff ``d`` divides ``n``, and then ``k_t = n/d``), as z3 does
+        not decide ``IsInt`` of a real with rational coefficients over
+        integers (issue #12)."""
+        d, n, cond = self._lin[t]
+        a = t.atoms
+        noint = z3.And(z3.Not(t.nan), t.real(), z3.Not(a["integer"]))
+        if d == 1 or cond is True:
+            return z3.Implies(noint, z3.Not(z3.IsInt(t.re)))
+        c = self._count()
+        q, r = z3.Int(f"dq{c}", self.ctx), z3.Int(f"dr{c}", self.ctx)
+        return z3.And(z3.Implies(cond, z3.And(n == d * q + r, r >= 0, r < d, a["integer"] == (r == 0))),
+                      z3.Implies(z3.And(cond, a["integer"]), t.k == q),
+                      z3.Implies(z3.And(noint, z3.Not(cond)), z3.Not(z3.IsInt(t.re))))
+
+    def _scaled(self, t: Term, e, args):
+        """The scaled integer witness of ``t`` (docs/design.md, "Values"):
+        ``(d, n, cond)`` with ``d`` a positive Python integer, ``n`` a Python
+        integer or a z3 integer and ``cond`` True or a z3 Boolean, such that
+        under ``cond`` the value of ``t`` is the finite real ``n/d``.  From
+        the terms' own witnesses ``k`` (under ``integer``) through rational
+        constants, sums, and products with at most one non-constant factor;
+        it reads only the forms of the arguments, so ``_shape`` can use it."""
+        if isinstance(e, Rational):                 # Integer included
+            return int(e.q), int(e.p), True
+        forms = [self._lin[x] for x in args] if args is not None else None
+        if isinstance(e, Add):
+            d = lcm(*(f[0] for f in forms))
+            n = sum(f[1] * (d // f[0]) for f in forms)
+        elif isinstance(e, Mul) and sum(f[2] is not True for f in forms) <= 1:
+            d, n = 1, 1
+            for f in forms:
+                d, n = d * f[0], n * f[1]
+        else:
+            return 1, t.k, t.atoms["integer"]
+        conds = [f[2] for f in forms if f[2] is not True]
+        return d, n, z3.And(conds) if conds else True
 
     def _value(self, t: Term, re, im):
         self._add(t.fin, t.re == re, t.im == im)
@@ -365,6 +409,11 @@ class Encoder:
         self._add(z3.Implies(z3.And(allfin, allint), z3.And(t.atoms["integer"], t.k == k)))
         self._infinite_product(t, args)
         self._closure(t, args, allfin, lambda y: z3.Not(y.atoms["zero"]))
+        # (+-1/q)*x for an integer q: x = +-q*t is an integer when t is
+        var = [x for x in args if not isinstance(x.expr, Rational)]
+        c = Mul(*[x.expr for x in args if isinstance(x.expr, Rational)])
+        if len(var) == 1 and abs(c.p) == 1 and c.q > 1:
+            self._add(z3.Implies(z3.And(var[0].fin, t.atoms["integer"]), var[0].atoms["integer"]))
 
     def _fresh_mul(self, a, b, c, d):
         """(a + b*I)*(c + d*I) as two fresh reals."""

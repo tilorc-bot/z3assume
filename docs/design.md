@@ -61,6 +61,21 @@ creates:
   goals such as "an odd times an odd is odd" come back `unknown` when stated
   with `IsInt` over reals, and are decided at once over the integer
   witnesses;
+- a scaled integer witness `(d_t, n_t, cond_t)` for a term that is a
+  rational linear combination of integers (issue #12): `d_t` a positive
+  integer, `n_t` an integer expression over the `k` of other terms, and
+  `cond_t` a condition under which the value is the finite real `n_t/d_t`.
+  A Rational `p/q` is `(q, p, true)`; a sum combines the witnesses of its
+  arguments over the lcm of their `d`; a product with at most one
+  non-constant factor multiplies them; every other term is
+  `(1, k_t, integer_t)`. For `d_t > 1` under `cond_t`, `n_t = d_t*q + r`
+  with `0 <= r < d_t` (fresh integers), `integer_t` iff `r = 0`, and then
+  `k_t = q`: `t` is an integer iff `d_t` divides `n_t`. z3 does not
+  refute `not IsInt(x)` for an `x` that is an integer combination with
+  rational coefficients (`k/2 - 1/2` with `k` odd: the strict bounds of
+  `IsInt`'s floor stay real, and branch and bound runs into the rlimit),
+  so under `cond_t` the non-integer fact is this one, over the integers;
+  `not IsInt(re_t)` stays for when `cond_t` fails;
 - Booleans for the predicates z3 has no theory for: `rational_t`,
   `algebraic_t`, `prime_t`.
 
@@ -88,7 +103,8 @@ not `nan`:
   `real & !extended_negative`, ...).
 - `imaginary`: `fin_t and re_t = 0 and im_t != 0`.
 - `integer`: `fin_t and im_t = 0 and re_t = k_t`; its negation says
-  `not IsInt(re_t)` for a finite real. `even`: `integer and r_t = 0`;
+  `not IsInt(re_t)` for a finite real (`d_t` not dividing `n_t` under
+  `cond_t` of a scaled witness, see "Values"). `even`: `integer and r_t = 0`;
   `odd`: `integer and r_t = 1`.
 - `rational`, `algebraic`, `prime`: their Booleans, with the definitional
   axioms `integer -> rational -> algebraic -> complex`,
@@ -122,7 +138,9 @@ difference, harmless while non-commutative input is out of scope).
   finite arguments gives an infinite non-real value; any `nan` gives `nan`;
   nothing is said about the remaining cases.
 - `Mul`: the complex product when all arguments are finite (and the integer
-  product of the `k`s for integer arguments); `0` times an infinity is
+  product of the `k`s for integer arguments); `c*x` with a Rational
+  `c = 1/q` or `-1/q` (`q > 1`) and a finite `x` makes `x = q*(c*x)` (or
+  `-q*(c*x)`) an integer when `c*x` is one; `0` times an infinity is
   `nan`; nonzero values with an infinity give an infinity, whose sign is the
   product of the signs when all are extended real.
 - `Pow` with an integer exponent `n`: `n > 0` is the product; `n < 0` is the
