@@ -28,7 +28,7 @@ include = ["z3assume*"]
 testpaths = ["tests"]
 
 [tool.ruff]
-line-length = 110
+line-length = 120
 
 # The SymPy boundary: the package reads SymPy expression trees but never asks
 # SymPy to reason (docs/design.md).  Tests and tools may.
