@@ -80,7 +80,8 @@ def ask(proposition, assumptions=True) -> Optional[bool]:
     if hit is not _MEMO:
         return hit
     r = _ask(proposition, assumptions)
-    if key is not None:
+    # a None from the wall-clock backstop depends on the load: not memoized
+    if key is not None and not last["timeout"]:
         if len(_MEMO) >= MEMO_SIZE:
             _MEMO.clear()
         _MEMO[key] = r

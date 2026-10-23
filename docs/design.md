@@ -165,8 +165,9 @@ between the sign predicates and the relations is the shared variables.
 ## Answering
 
 `And`, `Or`, `Not`, `Implies`, `Equivalent`, `Xor` and `ITE` become z3
-connectives. Then, with one z3 solver per query and the shared axioms of
-every term the query reaches:
+connectives. Then, with the shared axioms of every term the query reaches,
+each check in a fresh z3 solver (after a `push`, z3 skips the
+preprocessing that decides "an odd times an odd is odd"):
 
 1. Constant propositions (no free symbols) are first answered without the
    assumptions, as satassume does: a definite answer is returned and never
@@ -175,10 +176,11 @@ every term the query reaches:
    `A` is inconsistent and `ask` raises `ValueError` like satassume.
 3. Otherwise (sat), check `A & P`: unsat gives `False`, anything else
    `None`.
-4. `unknown` from z3 (resource limit, incompleteness) at step 3 gives
-   `None`.
+4. `unknown` from z3 (resource limit, incompleteness) at both steps gives
+   `None`; an `unknown` at one step and unsat at the other gives the
+   definite answer of the unsat step.
 
-The one case step 2 leaves open is `A & ~P` unsat and `A & P` unknown.
+The case that needs an argument is `A & ~P` unsat and `A & P` unknown.
 z3assume answers `True` there. The argument: `A & ~P` unsat is a proof
 that `A` entails `P`, and that is what `True` means; it holds whether or
 not `A` is consistent. What can go wrong is only the raising: if `A` is in
@@ -196,8 +198,9 @@ proposition about an out-of-scope thing is `None` (satassume's
 `out_of_scope` categories are kept).
 
 Answers are meant to be deterministic: each check runs under z3's
-`rlimit` (a count of z3's internal steps, not wall time), the random seeds
-are fixed, and the assertions are built in a fixed order (the SymPy
+`rlimit` (a count of z3's internal steps, not wall time), z3's random seeds
+are its defaults and never changed, and the assertions are built in a fixed
+order (the SymPy
 argument order, never a `set` iteration or a hash order). A memo of
 answers keyed by `(P, A)` is kept, as satassume does; it cannot change an
 answer.
@@ -209,9 +212,10 @@ backstop is `unknown`, so the answer is `None`, and whether a check near
 the backstop finishes depends on the machine and its load: such answers
 are not deterministic. The backstop is set far above the rlimit's usual
 cost so that it fires only in these pathological cases; every firing is
-counted (`ask.last["timeout"]`) and the comparisons report the count, so a
-query that hits it is visible and can be fixed in the encoding (by a
-smaller problem, not a larger limit).
+counted (`last["timeout"]` in the module `z3assume.ask`), a `None` it
+caused is not memoized, and the stream comparison (`tools/`) reports the
+count, so a query that hits it is visible and can be fixed in the encoding
+(by a smaller problem, not a larger limit).
 
 satassume answers under the part of `A` connected to `P` unless the whole
 of `A` is inconsistent. z3assume gives z3 the whole of `A`: by monotonicity
