@@ -153,7 +153,7 @@ move to "agree", or to "more" with an argument given here.
 | `Abs`, `re`, `im`, `conjugate`, `sign` (#5) | 269 | 390 | 0 | 16 distinct, stream only |
 | `Eq` carries the predicates (#6) | 269 | 389 | 0 | none |
 | symmetric `Eq` (#8) | 261 | 389 | 0 | none |
-| Floats (#9) | 269 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
+| Floats (#9) | 261 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
 
 Arguments for the 16 new answers of the `Abs` step:
 
