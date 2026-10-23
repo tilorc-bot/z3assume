@@ -142,7 +142,7 @@ def main():
     ap.add_argument("sat")
     ap.add_argument("z3")
     ap.add_argument("name")
-    ap.add_argument("--outdir", default=os.path.expanduser("~/dev/z3assume-cmp"))
+    ap.add_argument("--outdir", default=".")
     ap.add_argument("--top", type=int, default=15)
     args = ap.parse_args()
     stream = pickle.load(open(args.stream, "rb"))
