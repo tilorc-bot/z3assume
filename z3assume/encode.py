@@ -446,7 +446,7 @@ class Encoder:
         self._add(z3.Implies(z3.And(anyinf, nonzero, allext), z3.If(neg, t.ninf, t.pinf)))
 
     def _power(self, t: Term, b: Term, n: int):
-        # n != 0: _node encodes b**0 as 1; the closure axioms below need it
+        # n != 0: _node encodes b**0 (1 unless b is nan); the closure axioms below need it
         assert n != 0
         m = abs(n)
         # b**m by repeated squaring over fresh reals
