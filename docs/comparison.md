@@ -155,6 +155,7 @@ move to "agree", or to "more" with an argument given here.
 | symmetric `Eq` (#8) | 261 | 389 | 0 | none |
 | Floats (#9) | 261 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
 | one z3 context per query (#10) | 261 | 368 | 0 | none |
+| `exp`, `log` (#11) | 228 | 313 | 0 | 2 stream (distinct) |
 
 Arguments for the 16 new answers of the `Abs` step:
 
@@ -206,6 +207,39 @@ average 13 to 19), two had one check stopped by the 10 s backstop, each
 in a query without a Float (stream 9500 and 3617, 0.05 s and 0.25 s in the
 `Eq` step's run); 3617 kept its answer (False) and 9500 its None. The last
 run, the one in the table, had none.
+
+Arguments for the 2 new answers of the `exp`/`log` step (design.md
+"Terms: `exp`, `log`"; satassume None, z3assume False):
+
+- **`exp(I*t)` for `0 < t < pi` is not real** (stream 11818
+  `Q.positive(exp(I*t))`, 11819 `Q.negative(exp(I*t))`, both under
+  `Q.positive(t) & Q.negative(t - pi)`): `t` is a finite real in
+  `(0, pi)`, so `exp(I*t) = cos t + I*sin t` with `sin t > 0`. Its
+  imaginary part is nonzero, so it is not real, hence neither positive
+  nor negative.
+
+The other 33 stream and 55 gate2 answers that moved now agree with
+satassume: `exp` of a real is positive (`Q.positive(exp(x))` given
+`Q.real(x)`), `exp(z) != 0` (`Q.zero(exp(I*t))` given `Q.real(t)`, and
+`Q.zero(sign(exp(x)))`), `log` of a positive real is real, `arg` on the
+axes (`Q.real(log(x))` given `Q.imaginary(x)`), `log(pi) > 0`, the special
+values `log(0) = zoo` and `log` of an infinity infinite, Hermite-Lindemann
+(`Q.rational(exp(7))`, `Q.algebraic(log(7))`, `Q.rational(log(x))` given
+`Q.rational(x) & Q.nonzero(x - 1)`), the enclosure of `exp(2)`, and
+`exp(I*pi*x)` for an even or odd `x`. The `exp`/`log` queries still "less"
+need a symbolic power (`exp(x)**x`, step 5), `sqrt` (`log(sqrt(2))`), or
+trig.
+
+In the final run one check of stream 6776 (no `exp`/`log`; `Q.integer(t/pi
++ 1/2)` with `tan`) hit the 10 s backstop; the other check was unsat, so
+the answer (False) did not change, and alone the query takes 3.9 s with no
+timeout. Wall times (6 jobs, shared machine, load average 7 to 12): stream
+133 s, gate2 23 s (the Float step's run: 191 s, 36 s). Run back to back
+with main (551bdb9, before the Float step) on gate2: 27.7 s and 31.9 s for
+main, 38.5 s and 36.7 s for this step. The z3 problem of a query without
+`exp`, `log` or `E` is unchanged (checked on the slowest movers), yet the
+time of such queries alone varies by up to 5x between runs under this
+load, so this gap is not measured well; a pinned benchmark was not run.
 
 ## Speed
 

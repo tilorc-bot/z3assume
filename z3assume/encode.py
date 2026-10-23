@@ -10,7 +10,7 @@ from __future__ import annotations
 from fractions import Fraction
 
 import z3
-from sympy import Basic, Symbol
+from sympy import Basic, S, Symbol
 from sympy.core.add import Add
 from sympy.core.mul import Mul
 from sympy.core.numbers import (ComplexInfinity, Float, ImaginaryUnit, Infinity, Integer, NaN,
@@ -18,10 +18,12 @@ from sympy.core.numbers import (ComplexInfinity, Float, ImaginaryUnit, Infinity,
 from sympy.core.power import Pow
 from sympy.core.relational import Relational
 from sympy.functions.elementary.complexes import Abs, conjugate, im as Im, re as Re, sign
+from sympy.functions.elementary.exponential import exp, log
 from sympy.logic.boolalg import (And, BooleanFalse, BooleanTrue, Equivalent, ITE, Implies, Not, Or,
                                  Xor)
 from sympy.assumptions.assume import AppliedPredicate
 
+from .bounds import exp_bounds, log_bounds
 from .predicates import BASIS, DEFINITIONS, PREDICATES, RULES
 from .primes import is_prime
 
@@ -100,6 +102,7 @@ class Encoder:
         self.axioms = []
         self.opaque = {}
         self._congruent = set()
+        self._pairs = []
         self._n = 0
 
     def _count(self) -> int:
@@ -194,6 +197,8 @@ class Encoder:
         elif (isinstance(e, NumberSymbol) and type(e).__name__ in CONSTANTS
               and type(e).__module__ == "sympy.core.numbers"):     # not a user class
             self._constant(t, *CONSTANTS[type(e).__name__])
+            if type(e).__name__ == "Exp1":
+                self._exp_pair(z3.BoolVal(True, self.ctx), z3.RealVal(1, self.ctx), t.re)   # E = exp(1)
         elif isinstance(e, Symbol):
             self._add(z3.Not(t.nan))
             self._declared(t, e)
@@ -203,6 +208,14 @@ class Encoder:
             self._product(t, args)
         elif isinstance(e, Pow) and isinstance(e.exp, Integer):
             self._power(t, self.term(e.base), int(e.exp))
+        elif isinstance(e, Pow) and e.base is S.Exp1:
+            # E**z (unevaluated) is exp(z): the principal value
+            # exp(z*log(E)) with log(E) = 1
+            self._exp(t, self.term(e.exp))
+        elif type(e) is exp and len(e.args) == 1:     # not a user subclass
+            self._exp(t, self.term(e.args[0]))
+        elif type(e) is log and len(e.args) == 1:     # not a user subclass
+            self._log(t, self.term(e.args[0]))
         elif isinstance(e, (Abs, Re, Im, conjugate, sign)) and len(e.args) == 1:
             self._complex_part(t, type(e), self.term(e.args[0]))
         else:
@@ -432,6 +445,152 @@ class Encoder:
             self._add(z3.Implies(z3.And(z.fin, zim != 0), z3.And(t.fin, t.re * m == zre, t.im * m == zim,
                                                                              t.re * t.re + t.im * t.im == 1)),
                       z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
+
+    def _fresh_real(self, name):
+        return z3.Real(f"{name}{self._count()}", self.ctx)
+
+    def _exp_pair(self, cond, u, v):
+        """Under ``cond``, ``v = e**u`` for reals ``u``, ``v``.  The facts:
+        ``e**u > 0``; the tangent at 0, ``e**u >= 1 + u`` (convexity; it is
+        ``log(v) <= v - 1`` read the other way); ``e**0 = 1``; and, since
+        ``u -> e**u`` is strictly increasing on R, for every pair
+        registered before, ``u < u'`` iff ``v < v'`` and ``u = u'`` iff
+        ``v = v'``: finitely many ground instances, quadratic in the number
+        of ``exp``/``log`` terms of the query.  ``log(1) = 0``,
+        ``log(exp(x)) = x`` for real ``x`` and the sign of ``log(x)`` against
+        ``x - 1`` follow from these."""
+        one = z3.RealVal(1, self.ctx)
+        self._add(z3.Implies(cond, z3.And(v > 0, v >= one + u, (u < 0) == (v < one), (u == 0) == (v == one))))
+        for c2, u2, v2 in self._pairs:
+            self._add(z3.Implies(z3.And(cond, c2), z3.And((u < u2) == (v < v2), (u == u2) == (v == v2))))
+        self._pairs.append((cond, u, v))
+
+    def _exp(self, t: Term, z: Term):
+        """``exp(z)``, ``z = a + b*I``: ``e**a * (cos b + I*sin b)``.
+
+        Infinities and nan (satassume special-values): N1 ``nan -> nan``;
+        F1 ``exp(oo) = oo``, ``exp(-oo) = 0``, and for the other kind
+        (``zoo -> nan``; ``oo*d`` with ``|d| = 1`` non-real gives ``zoo``,
+        ``0`` or ``nan`` by the sign of ``re(d)``) one of ``cinf``, ``0``,
+        ``nan`` and nothing more, the kind not telling which.
+
+        Finite ``z``: ``|exp(z)| = e**a`` with ``e**a`` the fresh real
+        ``m`` (an exp pair with ``a``, see ``_exp_pair``), so
+        ``exp(z) != 0``, and ``exp(z) = m`` for real ``z``.  The signs of
+        ``cos b`` and ``sin b`` for ``-pi <= b <= pi`` (linear in ``b`` and
+        ``pi``): ``sin b > 0`` on ``(0, pi)``, ``< 0`` on ``(-pi, 0)``,
+        ``cos b > 0`` for ``|b| < pi/2``, ``= 0`` at ``|b| = pi/2``, ``< 0``
+        for ``pi/2 < |b| <= pi``, and ``exp(+-pi*I) = -1``.  For
+        ``z = I*pi*c`` (a product with the factors ``I`` and ``pi``) and
+        real ``c``: ``exp(z) = cos(pi*c) + I*sin(pi*c)``, which is
+        ``(-1)**c`` for an integer ``c`` and not real otherwise
+        (``sin(pi*c) = 0`` iff ``c`` is an integer).  ``exp(0) = 1``.
+        Hermite-Lindemann: ``e**w`` is transcendental for algebraic
+        ``w != 0``.  ``exp(log(w)) = w`` for finite ``w != 0`` (``log(w)``
+        is a logarithm of ``w``).  At a rational point ``r``, ``m`` lies in
+        the rational enclosure of ``e**r`` (``bounds.exp_bounds``).
+        Not encoded (z3 did not decide the even/odd case of the integer
+        witness ``b = n*pi`` within the limits): "``exp(z)`` real iff
+        ``b/pi`` is an integer" for ``b`` not of the form ``pi*c``."""
+        a, za = t.atoms, z.atoms
+        ctx = self.ctx
+        self._add(z3.Implies(z.nan, t.nan), z3.Implies(z.pinf, t.pinf),
+                  z3.Implies(z.cinf, z3.Or(t.cinf, t.nan, z3.And(t.fin, t.re == 0, t.im == 0))))
+        self._int_value(t, z.ninf, z3.IntVal(0, ctx))
+        zero = z3.And(z.fin, z.re == 0, z.im == 0)
+        self._int_value(t, zero, z3.IntVal(1, ctx))
+        m = self._fresh_real("expm")
+        self._add(z3.Implies(z.fin, z3.And(t.fin, t.re * t.re + t.im * t.im == m * m)),
+                  z3.Implies(z3.And(z.fin, z.im == 0), z3.And(t.re == m, t.im == 0)))
+        self._exp_pair(z.fin, z.re, m)
+        pi = self.term(S.Pi).re
+        b, re, im = z.im, t.re, t.im
+        self._add(z3.Implies(z.fin, z3.And(
+            z3.Implies(z3.And(b > 0, b < pi), im > 0),
+            z3.Implies(z3.And(b < 0, b > -pi), im < 0),
+            z3.Implies(z3.And(2 * b < pi, 2 * b > -pi), re > 0),
+            z3.Implies(z3.Or(2 * b == pi, 2 * b == -pi), re == 0),
+            z3.Implies(z3.Or(z3.And(2 * b > pi, b <= pi), z3.And(2 * b < -pi, b >= -pi)), re < 0),
+            z3.Implies(z3.Or(b == pi, b == -pi), z3.And(re == -m, im == 0)))))
+        w = z.expr
+        if isinstance(w, Mul) and S.ImaginaryUnit in w.args and S.Pi in w.args:
+            rest = list(w.args)
+            rest.remove(S.ImaginaryUnit)
+            rest.remove(S.Pi)
+            c = self.term(Mul(*rest))
+            one = z3.IntVal(1, ctx)
+            self._int_value(t, z3.And(c.real(), c.atoms["integer"]), z3.If(c.r == 0, one, -one))
+            self._add(z3.Implies(z3.And(c.real(), z3.Not(c.atoms["integer"])), im != 0))
+        # Hermite-Lindemann (1882)
+        self._add(z3.Implies(z3.And(z.fin, za["algebraic"], z3.Not(zero)), z3.Not(a["algebraic"])))
+        if isinstance(w, log) and len(w.args) == 1:
+            v = self.term(w.args[0])
+            ok = z3.And(v.fin, z3.Not(z3.And(v.re == 0, v.im == 0)))
+            self._add(z3.Implies(ok, z3.And(t.fin, t.re == v.re, t.im == v.im)))
+            self._same(t, v, ok)
+        if isinstance(w, Rational):
+            b = exp_bounds(Fraction(int(w.p), int(w.q)))
+            if b is not None:
+                self._add(m > self._q(b[0]), m < self._q(b[1]))
+
+    def _log(self, t: Term, z: Term):
+        """``log(z)``, SymPy's principal branch ``log|z| + I*arg(z)``,
+        ``-pi < arg(z) <= pi``.
+
+        Special values (satassume special-values): N1 ``nan -> nan``; F2
+        ``log(0) = zoo`` and ``log(zoo) = zoo`` (conventions), ``log`` of a
+        directed infinity is ``oo`` (``log(-oo) = oo``, "Choices" A1); so
+        the other kind gives ``oo`` or ``cinf``.
+
+        Finite ``z = a + b*I != 0``: ``re = log|z|``, an exp pair with
+        ``|z|`` (``_exp_pair``); ``im = arg(z)``, by the quadrant of
+        ``(a, b)``: ``0`` on the positive axis, ``pi`` on the negative
+        axis, in ``(0, pi)`` for ``b > 0`` and ``(-pi, 0)`` for ``b < 0``,
+        ``+-pi/2`` on the imaginary axis, ``|arg| < pi/2`` for ``a > 0``
+        and ``> pi/2`` for ``a < 0``.  ``log(1) = 0``.  Hermite-Lindemann:
+        a logarithm ``w`` (any branch) of an algebraic ``z`` other than
+        ``0``, ``1`` is transcendental (``w`` is not ``0``, and ``e**w = z``
+        would be transcendental for algebraic ``w``).  ``log(exp(x)) = x``
+        for real ``x``.  At a rational point ``r``, ``re`` lies in the
+        rational enclosure of ``log|r|`` (``bounds.log_bounds``)."""
+        a, za = t.atoms, z.atoms
+        ctx = self.ctx
+        self._add(z3.Implies(z.nan, t.nan), z3.Implies(z3.Or(z.pinf, z.ninf), t.pinf),
+                  z3.Implies(z.cinf, z3.Or(t.pinf, t.cinf)),
+                  z3.Implies(z3.And(z.fin, z.re == 0, z.im == 0), t.cinf))
+        x, y, th = z.re, z.im, t.im
+        nz = z3.And(z.fin, z3.Not(z3.And(x == 0, y == 0)))
+        m = self._fresh_real("logm")
+        self._add(z3.Implies(nz, z3.And(t.fin, m > 0, m * m == x * x + y * y, m >= x, m >= -x, m >= y, m >= -y)),
+                  z3.Implies(z3.And(nz, y == 0), m == z3.If(x >= 0, x, -x)))
+        self._exp_pair(nz, t.re, m)
+        pi = self.term(S.Pi).re
+        self._add(z3.Implies(nz, z3.And(
+            z3.Implies(y > 0, z3.And(th > 0, th < pi)),
+            z3.Implies(y < 0, z3.And(th < 0, th > -pi)),
+            z3.Implies(z3.And(y == 0, x > 0), th == 0),
+            z3.Implies(z3.And(y == 0, x < 0), th == pi),
+            z3.Implies(x > 0, z3.And(2 * th < pi, 2 * th > -pi)),
+            z3.Implies(z3.And(x == 0, y > 0), 2 * th == pi),
+            z3.Implies(z3.And(x == 0, y < 0), 2 * th == -pi),
+            z3.Implies(z3.And(x < 0, y > 0), 2 * th > pi),
+            z3.Implies(z3.And(x < 0, y < 0), 2 * th < -pi))))
+        one = z3.And(z.fin, x == 1, y == 0)
+        self._int_value(t, one, z3.IntVal(0, ctx))
+        # Hermite-Lindemann (1882)
+        self._add(z3.Implies(z3.And(nz, za["algebraic"], z3.Not(one)), z3.Not(a["algebraic"])))
+        w = z.expr
+        if isinstance(w, exp) and len(w.args) == 1:
+            v = self.term(w.args[0])
+            self._add(z3.Implies(v.real(), z3.And(t.fin, t.re == v.re, t.im == 0)))
+            self._same(t, v, v.real())
+        if isinstance(w, Rational) and w != 0:
+            b = log_bounds(abs(Fraction(int(w.p), int(w.q))))
+            if b is not None:
+                self._add(t.re > self._q(b[0]), t.re < self._q(b[1]))
+
+    def _q(self, f: Fraction):
+        return z3.Q(f.numerator, f.denominator, self.ctx) if f.denominator != 1 else z3.RealVal(f.numerator, self.ctx)
 
     def _fresh_int(self, v):
         k = z3.Int(f"pk{self._count()}", self.ctx)

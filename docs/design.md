@@ -203,6 +203,39 @@ difference, harmless while non-commutative input is out of scope).
   `Float('nan')` are SymPy's `oo`, `-oo` and `nan` objects, encoded as
   such. A Float exponent (`x**1.4`) is not an integer power and stays
   opaque.
+- `exp` (also `E**z` unevaluated) and `log` (SymPy's principal branch
+  `log|z| + I*arg(z)`, `-pi < arg <= pi`; `log(x, b)` is `log(x)/log(b)`
+  in SymPy). Special values from satassume's table: `nan` gives `nan`
+  (N1); `exp(oo) = oo`, `exp(-oo) = 0`, and for the other infinities one
+  of `cinf`, `0`, `nan` (F1: `zoo -> nan`, `oo*d` gives `zoo`, `0` or
+  `nan` by the sign of `re(d)`; the kind does not tell which); `log(0) =
+  zoo`, `log(+-oo) = oo`, `log` of the other kind `oo` or `cinf` (F2 and
+  its "Choices"). For finite arguments, every `exp` and `log` term gives
+  an *exp pair* of reals `(u, v)` with `v = e**u`: `(re z, |exp z|)` for
+  `exp(z)`, `(re log z, |z|)` for `log(z)`, `z != 0`, and `(1, E)` for the
+  constant `E`. Each pair has `v > 0`, `v >= 1 + u` (the tangent at 0, or
+  `log v <= v - 1`), `u < 0` iff `v < 1`, `u = 0` iff `v = 1`, and every
+  two pairs of the query are ordered alike (`e**u` is strictly
+  increasing): ground instances, quadratic in the number of terms. So
+  `exp(0) = 1`, `log(1) = 0`, `exp(z) != 0`, the sign of `log(x)` is that
+  of `x - 1`, and `log(exp(x)) = x` for real `x`. `exp(z)` with
+  `z = a + b*I`: real `e**a` for `b = 0`; `|exp z|**2 = re**2 + im**2`;
+  the signs of `cos b`, `sin b` on `[-pi, pi]` (linear in `b` and the
+  `pi` term); for `z = I*pi*c` with real `c`, `(-1)**c` for an integer `c`
+  and not real otherwise. `log(z)`: `arg` by the quadrant of `z` (`0`,
+  `pi`, `+-pi/2` on the axes, the open half-planes and quadrants as
+  intervals in `(-pi, pi)`). Hermite-Lindemann: `exp(w)` is
+  transcendental for algebraic `w != 0`, and every logarithm of an
+  algebraic `z` other than `0`, `1` is transcendental.
+  `exp(log(w)) = w` (unevaluated) and `log(exp(x)) = x` for real `x`
+  carry the predicates. At a rational point the value of `exp`
+  (`log|r|`) lies in a rational enclosure of relative width about
+  `10**-19`, computed in exact rational arithmetic with the error bound
+  argued in `bounds.py` (Taylor series with a geometric tail for `exp`,
+  the `atanh` series for `log`, outward rounding). Not encoded: "`exp(z)`
+  real iff `im(z)/pi` is an integer" for an imaginary part not of the
+  form `pi*c` (the integer witness made z3 time out), `exp_polar`,
+  `log` with two arguments (unevaluated), and Gelfond-Schneider.
 - Field closure, as ground axioms per node (z3 has no theory of the
   rationals inside the reals): a sum, product or integer power of rational
   (algebraic) values is rational (algebraic); a sum with all terms but one
@@ -218,10 +251,9 @@ justifies it:
 - `Pow` with a rational exponent: the principal square root `s` of `z` is
   exactly `s**2 = z and (re_s > 0 or (re_s = 0 and im_s >= 0))`; `q`-th
   roots exactly for a nonnegative real base.
-- `Pow` with a symbolic exponent, `exp`, `log`, `sin`, `cos`, other
+- `Pow` with a symbolic exponent, `sin`, `cos`, other
   functions: z3 uninterpreted functions of the argument's components, with
-  sound axioms only (`exp(r) > 0` and `exp(r) >= 1 + r` for real `r`,
-  `log` monotone with `log(1) = 0` on positive reals, `|sin r| <= 1`,
+  sound axioms only (as for `exp` and `log` above: `|sin r| <= 1`,
   `sin**2 + cos**2 = 1`, Lindemann-Weierstrass for transcendence, ...).
   Applied undefined functions `f(x)` become uninterpreted functions too, so
   congruence (`x = y -> f(x) = f(y)`) is z3's.
@@ -312,7 +344,8 @@ optimization, never as a change of answers.
 `polar`; matrices and matrix predicates;
 non-commutative symbols; custom predicates and satassume's extension API
 (`register`); `refine`; and, until their step, rational and symbolic
-powers, transcendental and special functions, relations.
+powers, transcendental functions other than `exp` and `log`, special
+functions, relations.
 The first slice is the eleven predicates `real`, `rational`, `integer`,
 `positive`, `negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`,
 `even`, `odd` on polynomial and rational expressions.
