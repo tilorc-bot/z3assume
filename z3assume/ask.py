@@ -47,7 +47,9 @@ def _is_constant(p) -> bool:
 
 def _decide(proposition, assumptions) -> Optional[bool]:
     """True, False or None; raises ValueError for inconsistent assumptions."""
-    enc = Encoder()
+    # a fresh context per query: in a shared one, z3's term ids and caches,
+    # and so the search, would depend on the queries asked before (#7)
+    enc = Encoder(z3.Context())
     try:
         p = enc.formula(proposition)
     except Unsupported:
