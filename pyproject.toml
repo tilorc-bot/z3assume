@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "z3assume"
+dynamic = ["version"]
+description = "Prototype rewrite of satassume (SymPy's new assumptions) on the z3 SMT solver"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "BSD-3-Clause"}
+authors = [{name = "z3assume contributors"}]
+dependencies = ["sympy>=1.13", "z3-solver>=4.13"]
+
+[project.urls]
+Source = "https://github.com/tilorc-bot/z3assume"
+
+[dependency-groups]
+dev = ["pytest", "pytest-xdist", "ruff"]
+
+[tool.setuptools.dynamic]
+version = {attr = "z3assume.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["z3assume*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+
+# The SymPy boundary: the package reads SymPy expression trees but never asks
+# SymPy to reason (docs/design.md).  Tests and tools may.
+[tool.ruff.lint]
+select = ["E", "F", "TID251"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["TID251"]
+"tools/**" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"sympy.ask".msg = "SymPy's own ask: z3assume answers by itself"
+"sympy.refine".msg = "SymPy's refine reasons with SymPy's ask"
+"sympy.assumptions.ask".msg = "SymPy's own ask (import Q from sympy)"
+"sympy.assumptions.refine".msg = "SymPy's refine"
+"sympy.simplify".msg = "SymPy simplification"
+"sympy.solvers".msg = "SymPy solvers"
+"sympy.polys".msg = "SymPy polynomial algebra"
+"satassume".msg = "no satassume code in z3assume"
