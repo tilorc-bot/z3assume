@@ -137,6 +137,22 @@ difference, harmless while non-commutative input is out of scope).
   `x**3 - x**2 - x - 1` in the interval, algebraic and irrational (rational
   root test). Open problems stay open: nothing about the rationality or
   algebraicity of `EulerGamma` and `Catalan`.
+- `Abs`, `re`, `im`, `conjugate`, `sign` of `z = a + b*I`: exact on the
+  pair. `Abs(z) = r` with `r >= 0`, `r**2 = a**2 + b**2` (and `r = |a|`
+  for real `z`), `re(z) = a`, `im(z) = b`, `conjugate(z) = a - b*I`,
+  `sign(z) = 0` at `0`, else `z/r`. A `nan` argument gives `nan`
+  (satassume special-values N1), every infinity has `Abs` `oo` (row F3);
+  at `+-oo` the limits along `t*d` (row V2) give `re = +-oo`, `im = 0`,
+  `conjugate = +-oo`, `sign = +-1`; at the other infinities `re`, `im`,
+  `conjugate` and `sign` are free (`zoo` has no direction and no written
+  convention). Number theory: for real `z` the value is `+-z`, so
+  integer (with `|k|` and the parity of `k`), rational, algebraic agree
+  with `z`'s (all predicates but `polar` for `re`, `conjugate` and a
+  nonnegative `z` under `Abs`), and `sign` is the integer `-1`, `0` or `1`; for any
+  finite algebraic `z` all five are algebraic (the algebraic numbers are a
+  field closed under complex conjugation and square roots), and
+  `conjugate(z)` is algebraic only for algebraic `z` (an involution).
+  `arg` stays opaque (its values need `atan2`).
 - Field closure, as ground axioms per node (z3 has no theory of the
   rationals inside the reals): a sum, product or integer power of rational
   (algebraic) values is rational (algebraic); a sum with all terms but one
@@ -159,7 +175,6 @@ justifies it:
   `sin**2 + cos**2 = 1`, Lindemann-Weierstrass for transcendence, ...).
   Applied undefined functions `f(x)` become uninterpreted functions too, so
   congruence (`x = y -> f(x) = f(y)`) is z3's.
-- `Abs`, `re`, `im`, `conjugate`, `sign`: exact in the pair encoding.
 
 ## Relations
 
@@ -274,3 +289,9 @@ may change".
    truth.
 6. `A & ~P` unsat with `A & P` unknown: `True` (default, see "Answering",
    Tilo may change) or `None`.
+7. `re`, `im`, `conjugate`, `sign` at the infinities. Default, Tilo may
+   change: at `+oo` and `-oo` their limits along the real axis (`re = +-oo`,
+   `im = 0`, `conjugate = +-oo`, `sign = +-1`; satassume's special-values
+   table has no row for them); at `zoo` and the directed non-real
+   infinities they are free. About 50 queries of the refine stream need a
+   value at `zoo` (e.g. `Q.zero(sign(1/x))` under `Q.real(x)`).

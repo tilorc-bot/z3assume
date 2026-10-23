@@ -141,6 +141,32 @@ opaque:
 
 These classes set the order in which coverage is widened.
 
+## Later steps
+
+Each widening step re-runs the comparison. Every answer it changes must
+move to "agree", or to "more" with an argument given here.
+
+| step | stream less | gate2 less | CONTRADICT | new "more" |
+|---|---|---|---|---|
+| first slice | 1,137 | 545 | 0 | 79 (above) |
+| named constants (#3) | 593 | 405 | 0 | none |
+| `Abs`, `re`, `im`, `conjugate`, `sign` (#5) | 269 | 390 | 0 | 16 distinct, stream only |
+
+Arguments for the 16 new answers of the `Abs` step:
+
+- **`re` of a real in an interval with `pi`** (11 queries, False): for a
+  real `x`, `re(x) = x`. With `0 < x <= pi/2`, `x/pi` lies in `(0, 1/2]` and
+  so is not an integer. The `2*pi` and `-t/(2*pi) + 1/2` variants are the
+  same argument.
+- **`x**2` real in `[0, pi/2]`** (one query, True): `x = a + b*I` gives
+  `x**2 = a**2 - b**2 + 2*a*b*I`. Real means `a*b = 0`, and nonnegative
+  means `b = 0` (if `a = 0`, then `-b**2 >= 0`). `x` is finite because `x**2`
+  is. So `im(x) = 0`, and `im(x)/pi = 0` is an integer.
+- **An imaginary `x = b*I`** (4 queries): `-I*x = b = im(x)`, so the sign of
+  `im(x)` decides `positive(-I*x)`, and the other way round.
+- **`sign` of an odd integer is `1` or `-1`** (4 queries, True):
+  `sign(n) + 2 > 0`, `-2 < sign(n)`, `-sign(n) < 2`.
+
 ## Speed
 
 z3assume is about 70 to 80 times slower than satassume. Measured with
