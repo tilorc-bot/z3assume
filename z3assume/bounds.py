@@ -167,7 +167,8 @@ def sin_cos_bounds(r):
     bound, which bounds the remainder, is at most ``2**-(PREC - 8)``
     (rounded up, a term never falls below ``2**-p``); that bound plus one
     more ``2**-PREC`` is added on both sides, which makes the enclosure
-    strict.  ``sin`` is odd and
+    strict.  The precision only makes the enclosure tight; soundness
+    comes from the outward rounding alone.  ``sin`` is odd and
     ``cos`` even."""
     r = Fraction(r)
     if r == 0 or abs(r) > TRIG_MAX or r.denominator > SIZE_MAX or abs(r.numerator) > SIZE_MAX:

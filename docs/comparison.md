@@ -156,7 +156,7 @@ move to "agree", or to "more" with an argument given here.
 | Floats (#9) | 261 | 368 | 0 | 15 stream, 3 gate2 (all distinct) |
 | one z3 context per query (#10) | 261 | 368 | 0 | none |
 | `exp`, `log` (#11) | 228 | 313 | 0 | 2 stream (distinct) |
-| trigonometric and hyperbolic (#12) | 197 | 200 | 0 | 9 stream, 7 gate2 (13 distinct) |
+| trigonometric and hyperbolic (#13) | 197 | 200 | 0 | 9 stream, 7 gate2 (13 distinct) |
 
 Arguments for the 16 new answers of the `Abs` step:
 
