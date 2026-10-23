@@ -8,7 +8,7 @@ order), so the problem z3 sees does not depend on hashing.
 from __future__ import annotations
 
 import z3
-from sympy import Basic, Symbol
+from sympy import Basic, Symbol, default_sort_key
 from sympy.core.add import Add
 from sympy.core.mul import Mul
 from sympy.core.numbers import (ComplexInfinity, ImaginaryUnit, Infinity, Integer, NaN,
@@ -502,7 +502,8 @@ class Encoder:
 
     def _eq(self, a: Term, b: Term):
         """Equal values; two other infinities, or a nan, leave it open."""
-        key = ("eq", a.expr, b.expr)
+        # equality is symmetric: one free Boolean for both orders
+        key = ("eq",) + tuple(sorted((a.expr, b.expr), key=default_sort_key))
         free = self._free(key)
         same = z3.Or(z3.And(a.fin, b.fin, a.re == b.re, a.im == b.im),
                      z3.And(a.pinf, b.pinf), z3.And(a.ninf, b.ninf))

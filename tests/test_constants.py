@@ -73,6 +73,8 @@ CASES = [
     (Ne(x, pi), Q.rational(x), True, "pi is irrational"),
     (Q.rational(x), Eq(x, pi) | Eq(x, E), False, "both are transcendental"),
     (Eq(x, pi), Q.algebraic(x), False, "pi is transcendental"),
+    (Q.eq(y, x), Q.eq(x, y), True, "equality is symmetric (x = y = zoo included)"),
+    (Q.ne(y, x), Q.eq(x, y), False, "equality is symmetric"),
     (Q.rational(f(y)), Eq(f(y), pi), False, "f(y) = pi, or f(y) is nan (opaque), no rational either way"),
 ]
 
