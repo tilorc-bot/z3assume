@@ -2,8 +2,8 @@
 Catalan) and the field closure around them.  Every expected answer has its
 argument next to it (design.md, "The truth standard")."""
 import pytest
-from sympy import (Catalan, E, EulerGamma, GoldenRatio, I, Pow, Q, S, TribonacciConstant, pi,
-                   symbols)
+from sympy import (Catalan, E, Eq, EulerGamma, GoldenRatio, I, Ne, Pow, Q, S, TribonacciConstant, oo, pi,
+                   symbols, zoo)
 
 from z3assume import ask
 
@@ -61,6 +61,14 @@ CASES = [
     (Q.irrational(x * y), Q.rational(x) & Q.nonzero(x) & Q.irrational(y), True, "y = (x*y)/x"),
     (Q.transcendental(x * y), Q.algebraic(x) & Q.nonzero(x) & Q.transcendental(y), True, "y = (x*y)/x"),
     (Q.transcendental(x + y), Q.algebraic(x) & Q.transcendental(y), True, "y = (x + y) - x"),
+    # Eq carries the predicates of equal values (issue #4)
+    (Q.rational(x), Eq(x, pi), False, "x = pi is transcendental"),
+    (Q.transcendental(x), Eq(x, pi), True, "x = pi"),
+    (Q.algebraic(x), Eq(x, GoldenRatio), True, "x = GoldenRatio"),
+    (Q.even(x), Eq(x, 2 * y) & Q.integer(y), True, "x = 2*y"),
+    (Q.integer(x), Eq(x, oo), False, "x = oo is no integer"),
+    (Q.rational(x), Eq(x, zoo, evaluate=False), False, "x is infinite"),
+    (Q.rational(x), Ne(x, pi), None, "x != pi says nothing"),
 ]
 
 
@@ -72,3 +80,10 @@ def test_answer(p, a, answer, why):
 def test_constants_are_constants():
     assert S.Exp1 is E
     assert ask(Q.real(pi * x), Q.real(x)) is True
+
+
+def test_eq_inconsistent():
+    """Eq(x, pi) makes x transcendental, so Q.algebraic(x**5) contradicts it
+    (x algebraic as a root of x**5 - a)."""
+    with pytest.raises(ValueError):
+        ask(Q.positive(y), Eq(x, pi) & Q.algebraic(x**5))

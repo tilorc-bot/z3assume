@@ -503,6 +503,10 @@ class Encoder:
         """Equal values; two other infinities, or a nan, leave it open."""
         key = ("eq", a.expr, b.expr)
         free = self._free(key)
-        return z3.Or(z3.And(a.fin, b.fin, a.re == b.re, a.im == b.im),
-                     z3.And(a.pinf, b.pinf), z3.And(a.ninf, b.ninf),
-                     z3.And(z3.Or(z3.And(a.cinf, b.cinf), a.nan, b.nan), free))
+        same = z3.Or(z3.And(a.fin, b.fin, a.re == b.re, a.im == b.im),
+                     z3.And(a.pinf, b.pinf), z3.And(a.ninf, b.ninf))
+        # congruence: a predicate is a property of the value, so equal
+        # values have the same atoms (issue #4); the atoms of two zoo or of
+        # a nan stay apart, as their equality does
+        self._add(z3.Implies(same, z3.And([a.atoms[p] == b.atoms[p] for p in BASIS])))
+        return z3.Or(same, z3.And(z3.Or(z3.And(a.cinf, b.cinf), a.nan, b.nan), free))
