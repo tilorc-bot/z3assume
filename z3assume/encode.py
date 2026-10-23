@@ -212,9 +212,9 @@ class Encoder:
             # E**z (unevaluated) is exp(z): the principal value
             # exp(z*log(E)) with log(E) = 1
             self._exp(t, self.term(e.exp))
-        elif isinstance(e, exp) and len(e.args) == 1:
+        elif type(e) is exp and len(e.args) == 1:     # not a user subclass
             self._exp(t, self.term(e.args[0]))
-        elif isinstance(e, log) and len(e.args) == 1:
+        elif type(e) is log and len(e.args) == 1:     # not a user subclass
             self._log(t, self.term(e.args[0]))
         elif isinstance(e, (Abs, Re, Im, conjugate, sign)) and len(e.args) == 1:
             self._complex_part(t, type(e), self.term(e.args[0]))
