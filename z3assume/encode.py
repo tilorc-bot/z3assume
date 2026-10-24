@@ -999,9 +999,11 @@ class Encoder:
         ``n <= a < n + 1``), so the parts are exact; ``ceiling(a) =
         -floor(-a)`` (the least integer ``>= a`` is minus the greatest
         integer ``<= -a``).  ``frac(z) = z - floor(z)``: SymPy defines
-        ``frac(x) = x - floor(x)`` for real ``x`` and ``frac(t + I*r) =
-        frac(t) + I*frac(r)`` for complex arguments (its docstring), which
-        is the same formula with the complex floor.
+        ``frac(x) = x - floor(x)`` for real ``x`` and rewrites ``frac(x)``
+        as ``x - floor(x)`` for any ``x``; with the documented complex
+        floor that is the formula for complex ``z`` too (the docstring's
+        complex example agrees, but an example is an evaluation, not the
+        ground).
 
         The value of ``floor``/``ceiling`` is a Gaussian integer: algebraic
         (a root of ``w**2 - 2*m*w + m**2 + n**2``), real exactly when the

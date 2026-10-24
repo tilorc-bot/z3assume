@@ -357,8 +357,10 @@ difference, harmless while non-commutative input is out of scope).
   `functions.py` say the same): for finite `z = a + b*I`, `floor(z) =
   floor(a) + floor(b)*I` with z3's `ToInt` (exactly the floor of a real,
   the integer `m` with `m <= a < m + 1`), `ceiling(a) = -floor(-a)`, and
-  `frac(z) = z - floor(z)` (SymPy: `x - floor(x)` for real `x`,
-  `frac(t + I*r) = frac(t) + I*frac(r)`). The value of `floor` and
+  `frac(z) = z - floor(z)` (SymPy's stated definition for real `x`, and
+  its rewrite `frac(x) -> x - floor(x)` for any `x`, with the documented
+  complex floor; the docstring's complex example agrees, but an example is
+  an evaluation, not the ground). The value of `floor` and
   `ceiling` is a Gaussian integer: algebraic, real exactly when the
   rounded imaginary part is 0, and then the integer `k`; `frac(z)` is
   algebraic iff `z` is, and for real `z` rational iff `z` is (`z -
