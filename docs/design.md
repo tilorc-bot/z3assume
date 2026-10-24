@@ -137,7 +137,9 @@ difference, harmless while non-commutative input is out of scope).
 - `Symbol`: fresh variables; declared assumptions (`Symbol('x',
   positive=True)`) become facts, as satassume reads them.
 - `Add`: when all arguments are finite, finite with `re` and `im` the sums;
-  when the arguments are integers, `k_t` is the sum of their `k`. With an
+  when the arguments are integers, `k_t` is the sum of their `k`, and
+  when the sum and every argument but one are integers, so is that one (the
+  integers are closed under subtraction; #23). With an
   infinite argument: `+oo` plus real or `+oo` arguments is `+oo` (likewise
   `-oo`); with a non-real finite argument it is `+oo` or an infinity of the
   other kind, as the conventions disagree (decision 3): SymPy evaluates

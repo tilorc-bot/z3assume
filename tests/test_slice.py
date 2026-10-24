@@ -128,3 +128,18 @@ def test_declared_assumptions_are_facts():
 def test_out_of_scope_is_none():
     A, B = symbols("A B", commutative=False)
     assert ask(Q.real(A * B), Q.real(A)) is None
+
+
+@pytest.mark.parametrize(
+    "p, a, answer",
+    [
+        (Q.integer(x), Q.integer(x + 1), True),
+        (Q.integer(x), Q.integer(x + y) & Q.integer(y), True),
+        (Q.even(x), Q.even(x + y) & Q.even(y), True),
+        (Q.integer(x), Q.integer(x + y), None),
+        (Q.integer(x), Q.integer(x + y + 1) & Q.integer(y), True),
+    ],
+)
+def test_sum_converse_integer(p, a, answer):
+    # #23: the integers are closed under subtraction
+    assert ask(p, a) is answer
