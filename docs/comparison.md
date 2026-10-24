@@ -542,13 +542,19 @@ wester suite come back (decision 11).
 The converse integer axiom for sums (#28, closes #23; design.md "Terms:
 `Add`") changes no answer on either corpus. It helps queries outside them,
 for example `Q.real(gamma(x + 1))` under `Q.real(x) & ~Q.integer(x)` (now
-True). Measured on fb92e31 (before #29), it made both corpora about 5%
-faster (pinned pareto1 core, three rotating rounds: gate2 31.75 s to
-29.96 s, every 8th stream query 32.59 s to 30.72 s).
+True). It also makes both corpora faster. On a pinned pareto1 core, three
+rotating rounds, medians: on a2428ca (after #29) gate2 goes from 33.41 s
+to 32.17 s (-4%) and every 8th stream query from 35.40 s to 31.78 s
+(-10%); on fb92e31 (before #29) it was 31.75 s to 29.96 s and 32.59 s to
+30.72 s (means, about -5%).
 
 ## Speed
 
-z3assume is about 70 to 80 times slower than satassume. Measured with
+z3assume is about 50 to 60 times slower than satassume. The latest
+measurement, at f2d67e8 (24 Oct 2026, pinned pareto1 core, three rotating
+rounds, medians), gives 58x on gate2 (32.17 s against 0.557 s) and 47x on
+every 8th stream query (31.78 s against 0.681 s); the history is in #15.
+The first measurement, 70 to 80 times, was taken with
 `bench-container` on one Cortex-A720 core (BENCH_CPU=10, 2.5 GHz), Python
 3.13, z3-solver 5.3.1, one process per run, three interleaved rounds after
 a warmup (spread under 2%), 23 Oct 2026, z3assume 7ce67e8 (this PR's tools,
