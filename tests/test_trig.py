@@ -32,7 +32,7 @@ CASES = [
     (Q.zero(cosh(x)), Q.real(x), False, "cosh x >= 1"),
     (Q.positive(cosh(x) - 1), Q.real(x), None, "cosh(0) = 1"),
     (Q.positive(cosh(x) - 1), Q.real(x) & Q.nonzero(x), True, "cosh x = 1 + x**2/2 + ..."),
-    (Q.zero(cosh(x)), Q.extended_nonnegative(x), None, "x = oo: no row, free"),
+    (Q.zero(cosh(x)), Q.extended_nonnegative(x), False, "cosh >= 1 on the reals, cosh(oo) = oo (decision 10)"),
     (Q.zero(cosh(x)), Q.imaginary(x), None, "cosh(I*pi/2) = cos(pi/2) = 0"),
     (Q.positive(sinh(x)), Q.positive(x), True, "sinh has the sign of x"),
     (Q.negative(sinh(x)), Q.negative(x), True, "sinh has the sign of x"),
@@ -40,7 +40,7 @@ CASES = [
     (Q.positive(tanh(x)), Q.positive(x), True, "sinh/cosh, both positive"),
     (Q.negative(tanh(x) - 1), Q.real(x), True, "|sinh| < cosh"),
     (Q.zero(coth(x)), Q.real(x), False, "cosh/sinh with cosh >= 1, or zoo at 0"),
-    (Q.zero(coth(x)), Q.extended_positive(x), None, "x = oo: no row, free"),
+    (Q.zero(coth(x)), Q.extended_positive(x), False, "coth > 1 on (0, oo), coth(oo) = 1 (decision 10)"),
     (Q.zero(sech(x)), Q.complex(x), False, "1/cosh: nonzero, or zoo"),
     (Q.zero(csch(x)), Q.imaginary(x), False, "1/sinh: nonzero, or zoo"),
     (Q.positive(exp(x) - sinh(x)), Q.real(x), True, "exp - sinh = cosh > 0 (one exp pair)"),
@@ -132,6 +132,17 @@ CASES = [
     (Q.positive(acoth(x)), Q.positive(x - 1), True, "(1, oo) -> (0, oo)"),
     (Q.real(atan(x)), Q.infinite(x), None, "atan(oo) = pi/2: a limit no row states"),
     (Q.real(asin(S.NaN, evaluate=False)), True, False, "N1"),
+    # decision 10: the hyperbolic functions at +-oo are their limits
+    (Q.zero(coth(x)), Q.gt(x, 0), False, "coth > 1 on (0, oo), coth(oo) = 1"),
+    (Q.positive(coth(x)), Q.ge(x, 1), True, "coth > 1 on (0, oo), coth(oo) = 1"),
+    (Q.zero(coth(x)), Q.extended_real(x), False, "|coth| > 1 on the nonzero reals, coth(0) = zoo, +-1 at +-oo"),
+    (Q.negative(tanh(x)), Q.extended_negative(x), True, "odd, increasing, tanh(-oo) = -1"),
+    (Q.zero(sech(x)), Q.extended_real(x) & Q.infinite(x), True, "sech(+-oo) = 0"),
+    (Q.zero(csch(x)), Q.extended_real(x) & Q.infinite(x), True, "csch(+-oo) = 0"),
+    (Q.extended_negative(sinh(x)), Q.extended_negative(x), True, "sinh(-oo) = -oo"),
+    (Q.positive(sinh(x)), Q.gt(x, 0), None, "sinh(oo) = oo is not positive"),
+    (Q.infinite(cosh(x)), Q.extended_real(x) & Q.infinite(x), True, "cosh(+-oo) = oo"),
+    (Q.zero(coth(x)), Q.infinite(x), None, "no limit at oo*I (coth(I*t) = -I*cot(t)) or zoo"),
 ]
 
 

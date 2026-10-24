@@ -615,6 +615,9 @@ class Encoder:
         # Implies(And(allfin, allint), And(t.atoms["integer"], t.k == Sum([x.k ...])))
         add(R.implies(R.and_(allfin, allint), R.and_(T.atoms["integer"], R.eq(T.k, R.add(*[x.k for x in xs])))))
         add(R.implies(R.or_(*[x.nan for x in xs]), T.nan))      # Implies(Or([x.nan ...]), t.nan)
+        # a sum with an infinity among its summands is an infinity or nan,
+        # never a number, whatever the kinds (zoo + oo is open otherwise)
+        add(R.implies(T.fin, allfin))                             # Implies(t.fin, allfin)
         # +-oo among finite values and the same infinity
         for inf, kind in ((T.pinf, "pinf"), (T.ninf, "ninf")):
             # Implies(And(Or([x.<kind> ...]), And([Or(x.fin, x.<kind>) ...])), inf)
@@ -1617,9 +1620,11 @@ class Encoder:
         hyperbolic counterparts of ``z``.
 
         Special values: ``nan`` gives ``nan`` (satassume special-values
-        N1).  An infinite argument leaves the value free: the table has no
-        row for these functions (it names ``sin(oo)`` as a point no row
-        covers), and none of them has a limit at every infinity.
+        N1).  The hyperbolic functions at ``+-oo`` are their limits
+        (decision 10).  Any other infinite argument leaves the value free:
+        the table has no row for these functions (it names ``sin(oo)`` as
+        a point no row covers), and none of them has a limit at every
+        infinity.
 
         Finite ``z``: ``cos``, ``sin`` (``cosh``, ``sinh``) exactly by
         their real and imaginary parts (``_even_odd``).  The other four are
@@ -1657,6 +1662,15 @@ class Encoder:
         1/w)/2``, ...)."""
         a, za = t.atoms, z.atoms
         self._add(z3.Implies(z.nan, t.nan))
+        if family == "hyp":
+            # decision 10: the limits at +-oo (satassume's templates/hyperbolic.py)
+            for inf, s in ((z.pinf, 1), (z.ninf, -1)):
+                if den is None:                 # cosh -> oo, sinh -> +-oo
+                    v = t.pinf if num == "E" or s == 1 else t.ninf
+                else:                           # tanh, coth -> +-1; sech, csch -> 0
+                    c = 0 if num == 1 else s
+                    v = z3.And(t.fin, t.re == c, t.im == 0)
+                self._add(z3.Implies(inf, v))
         even, odd = self._even_odd(z, family)
         pick = {"E": even, "O": odd}
         if den is None:
