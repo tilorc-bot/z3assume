@@ -12,11 +12,16 @@ from .encode import Encoder, Unsupported
 
 #: z3's resource limit per check: a count of internal steps, so an answer
 #: does not depend on the machine's speed or load.
-RLIMIT = 1_000_000
+RLIMIT = 2_000_000
 #: Wall-clock backstop (ms): z3 checks the rlimit only at some points and
 #: can overrun it on nonlinear integer problems.  When it fires the check
 #: is unknown, so the answer is None; it is counted in ``last["timeout"]``.
 TIMEOUT_MS = 10_000
+#: The fallback check (``_check``): tactics with no wall-clock timers of
+#: their own (``qfnia`` has ``try_for``), and its rlimit; 0
+#: turns it off.
+FALLBACK = ("simplify", "propagate-values", "solve-eqs", "smt")
+FALLBACK_RLIMIT = 250_000
 
 _MEMO = {}
 MEMO_SIZE = 100_000
@@ -27,21 +32,33 @@ last = {"checks": 0, "unknown": 0, "timeout": 0}
 
 def _check(enc: Encoder, *fs):
     """One check in a fresh solver: z3 preprocesses a non-incremental
-    problem (solve-eqs, ...), and after a push it would not."""
-    s = z3.Solver(ctx=enc.ctx)
-    s.set("rlimit", RLIMIT)
+    problem (solve-eqs, ...), and after a push it would not.  When the
+    default solver gives up on its rlimit, one more try with the tactics
+    ``FALLBACK`` and a smaller rlimit (``FALLBACK_RLIMIT``): the default
+    solver's nonlinear search depends on term ids and caches, and a
+    problem it misses in one term order (#29) the plain preprocessing and
+    smt core often decide in a fraction of the steps."""
+    last["checks"] += 1
+    r, timed_out = _run(enc, z3.Solver(ctx=enc.ctx), RLIMIT, fs)
+    # not after the wall-clock backstop: a check is at most two backstops
+    if r == z3.unknown and FALLBACK_RLIMIT and not timed_out:
+        r, _ = _run(enc, z3.Then(*FALLBACK, ctx=enc.ctx).solver(), FALLBACK_RLIMIT, fs)
+    if r == z3.unknown:
+        last["unknown"] += 1
+    return r
+
+
+def _run(enc: Encoder, s, rlimit, fs):
+    s.set("rlimit", rlimit)
     s.set("timeout", TIMEOUT_MS)
     c, solver = enc.ctx.ref(), s.solver
     for f in enc.axioms:            # raw pointers, in order (s.add would wrap each)
         Z3_solver_assert(c, solver, f)
     s.add(*fs)
     r = s.check()
-    last["checks"] += 1
-    if r == z3.unknown:
-        last["unknown"] += 1
-        if s.reason_unknown() == "timeout":
-            last["timeout"] += 1
-    return r
+    timed_out = r == z3.unknown and s.reason_unknown() == "timeout"
+    last["timeout"] += int(timed_out)
+    return r, timed_out
 
 
 def _is_constant(p) -> bool:

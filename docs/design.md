@@ -502,6 +502,15 @@ caused is not memoized, and the stream comparison (`tools/`) reports the
 count, so a query that hits it is visible and can be fixed in the encoding
 (by a smaller problem, not a larger limit).
 
+The rlimit of a check is 2,000,000 (`RLIMIT`). When the default solver
+runs out of it (not when the backstop fires), the check is tried once
+more with the tactics `simplify`, `propagate-values`, `solve-eqs`, `smt`
+and an rlimit of 250,000 (`FALLBACK`, `FALLBACK_RLIMIT`). These tactics
+have no wall-clock timers of their own (`qfnia` has `try_for`, so it
+is not used), so both runs are deterministic, and
+either `unsat` is a proof: the fallback can only turn a `None` into an
+answer the axioms entail (decision 11).
+
 satassume answers under the part of `A` connected to `P` unless the whole
 of `A` is inconsistent. z3assume gives z3 the whole of `A`: by monotonicity
 the answer is the same or more definite, and it raises exactly when `A` is
@@ -621,3 +630,19 @@ one-line rationale added here.
    formulas through `exp` give, except for `tanh` and `coth`, whose
    quotient `(e**t - e**-t)/(e**t + e**-t)` is `oo/oo` at `+oo`: the
    function is the limit, not the formula's expression at the point.
+11. New (#29): rlimit 2,000,000 per check, and a fallback (plain
+   preprocessing and the smt core, rlimit 250,000) when the default
+   solver runs out of it. Rationale: the default
+   solver's nonlinear search depends on the order in which terms were
+   created and on what ran before in the context, so one added axiom can
+   move a check across its limit with no change in what is true. Two cases
+   of the public wester suite were lost that way by #26 (its axiom "a sum
+   is finite only when every summand is"), and both old answers are right.
+   `sign(x**4 - x) = 1` under `0 <= x <= 1` is False because `x**4 <= x`
+   there. `sign(k*x**n - k*y**n) = 1` under `x > y > 1/10`, `x < 10`,
+   `k > 0` and `0 < n < 10` is True because `t -> t**n` increases on
+   `(0, oo)` for `n > 0`. The first check takes 90,000 steps in a fresh
+   context and over 4,000,000 in `ask`'s order; the fallback decides it
+   in about 51,000. The second needs 1,130,000 steps (990,000
+   before #26). The limits are steps, not seconds, so answers stay
+   deterministic. The cost is measured in the #29 PR description.

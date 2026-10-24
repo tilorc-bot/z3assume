@@ -164,6 +164,7 @@ move to "agree", or to "more" with an argument given here.
 | `re`, `im`, `conjugate`, `sign` at the `zoo` kind (#24) | 18 | 5 | 0 | 21 stream (distinct) |
 | sums with an infinity, hyperbolic limits (#26) | 1 | 5 | 0 | none |
 | inverse functions off the real axis (#27) | 1 | 4 | 0 | none |
+| rlimit 2,000,000 and a fallback check (#29) | 1 | 4 | 0 | 1 stream |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -525,6 +526,17 @@ The same holds for the other seven inverse functions z3assume encodes
 (`asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `acoth`): on its
 finite values each is a right inverse of a function that maps the reals
 into the reals and `zoo`.
+
+The rlimit step (#29, decision 11) changes one answer, by the larger
+rlimit (the default solver proves it in about 1,050,000 steps): stream 12208,
+`Q.nonnegative(sign(x)*sign(conjugate(x)))` under `Q.negative(re(x))`,
+goes from None to True, and satassume answers None. The argument:
+`re(x)` is a finite negative real. Every infinite `x` has `re(x)` in
+`{+-oo, 0, nan}` (decision 7), none of which is finite and negative, so
+`x` is finite and nonzero. Then `sign(x)*sign(conjugate(x)) =
+(x/|x|)*(conjugate(x)/|x|) = |x|**2/|x|**2 = 1`, which is nonnegative. Gate2
+answers do not change, and nothing contradicts. Two cases of the public
+wester suite come back (decision 11).
 
 ## Speed
 
