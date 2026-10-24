@@ -1028,8 +1028,18 @@ class Encoder:
         special-values V2) gives the limit of the function, which only
         ``Abs`` (row F3: ``oo``) has for every infinity: ``re``, ``im``,
         ``conjugate`` and ``sign`` of ``+-oo`` are ``+-oo``, ``0``, ``+-oo``,
-        ``+-1``, and are left free for the other infinities (``zoo`` has no
-        direction).  Number theory: the algebraic numbers are closed under
+        ``+-1``.  For the other kind (``zoo`` and the directed non-real
+        infinities ``oo*u``) only what every value of that kind gives is
+        stated (decision 7): along ``t*d`` with ``d/|d| = u`` non-real,
+        ``re = t*re(d)`` tends to ``+-oo`` or is ``0``, ``im = t*im(d)``
+        tends to ``+-oo``, ``conjugate = t*conj(d)`` is again of the other
+        kind and ``sign = u`` is a non-real unit; ``zoo`` has no direction,
+        and each of the four has no limit there (``re(c + I*s)`` is ``c``
+        as ``s -> oo``, for every ``c``) and no value by the table's
+        arithmetic (``(zoo + zoo)/2`` is ``nan``, row A3), so ``re``,
+        ``im`` and ``sign`` of ``zoo`` are ``nan`` (V1: no value), while
+        ``conjugate``, the reflection of the Riemann sphere, fixes ``zoo``.
+        Number theory: the algebraic numbers are closed under
         complex conjugation (a root of a rational polynomial ``p`` has its
         conjugate as a root of ``p``), the field operations and square
         roots, so ``re = (z + conj z)/2``, ``im = (z - conj z)/(2*I)``,
@@ -1052,15 +1062,18 @@ class Encoder:
             self._same(t, z, z3.And(real, zre >= 0))
         elif f is Re:
             self._add(z3.Implies(z.pinf, t.pinf), z3.Implies(z.ninf, t.ninf),
+                      z3.Implies(z.cinf, z3.Or(t.pinf, t.ninf, t.nan,
+                                               z3.And(t.fin, t.im == 0, t.re == 0, a["integer"], t.k == 0))),
                       z3.Implies(z.fin, z3.And(t.fin, t.im == 0, t.re == zre)),
                       z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
             self._same(t, z, real)
         elif f is Im:
             self._int_value(t, z3.Or(z.pinf, z.ninf, real), z3.IntVal(0, self.ctx))
-            self._add(z3.Implies(z.fin, z3.And(t.fin, t.im == 0, t.re == zim)),
+            self._add(z3.Implies(z.cinf, z3.Or(t.pinf, t.ninf, t.nan)),
+                      z3.Implies(z.fin, z3.And(t.fin, t.im == 0, t.re == zim)),
                       z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
         elif f is conjugate:
-            self._add(z3.Implies(z.pinf, t.pinf), z3.Implies(z.ninf, t.ninf),
+            self._add(z3.Implies(z.pinf, t.pinf), z3.Implies(z.ninf, t.ninf), z3.Implies(z.cinf, t.cinf),
                       z3.Implies(z.fin, z3.And(t.fin, t.re == zre, t.im == -zim)),
                       # conjugation is an involution
                       z3.Implies(z.fin, a["algebraic"] == za["algebraic"]))
@@ -1075,6 +1088,7 @@ class Encoder:
             m = self.term(Abs(z.expr, evaluate=False)).re
             self._add(z3.Implies(z3.And(z.fin, zim != 0), z3.And(t.fin, t.re * m == zre, t.im * m == zim,
                                                                              t.re * t.re + t.im * t.im == 1)),
+                      z3.Implies(z.cinf, z3.Or(t.nan, z3.And(t.fin, t.im != 0, t.re * t.re + t.im * t.im == 1))),
                       z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
 
     def _round(self, t: Term, f, z: Term):

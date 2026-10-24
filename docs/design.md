@@ -206,9 +206,11 @@ difference, harmless while non-commutative input is out of scope).
   `sign(z) = 0` at `0`, else `z/r`. A `nan` argument gives `nan`
   (satassume special-values N1), every infinity has `Abs` `oo` (row F3);
   at `+-oo` the limits along `t*d` (row V2) give `re = +-oo`, `im = 0`,
-  `conjugate = +-oo`, `sign = +-1`; at the other infinities `re`, `im`,
-  `conjugate` and `sign` are free (`zoo` has no direction and no written
-  convention). Number theory: for real `z` the value is `+-z`, so
+  `conjugate = +-oo`, `sign = +-1`; at the other kind (`zoo` and the
+  directed non-real infinities, one kind in the encoding) only what holds
+  for each of them (decision 7): `re` is `+-oo`, `0` or `nan`, `im` is
+  `+-oo` or `nan`, `conjugate` is again of that kind, `sign` is `nan` or a
+  non-real unit. Number theory: for real `z` the value is `+-z`, so
   integer (with `|k|` and the parity of `k`), rational, algebraic agree
   with `z`'s (all predicates but `polar` for `re`, `conjugate` and a
   nonnegative `z` under `Abs`), and `sign` is the integer `-1`, `0` or `1`; for any
@@ -538,13 +540,23 @@ one-line rationale added here.
    "Answering"). Rationale: the unsat result is a proof that `A` entails
    `P`; only the raising on an inconsistent `A` that z3 cannot show is
    lost.
-7. Kept: `re`, `im`, `conjugate`, `sign` at `+oo` and `-oo` are their limits
-   along the real axis (`re = +-oo`, `im = 0`, `conjugate = +-oo`,
-   `sign = +-1`; special-values row V2); at `zoo` and the directed non-real
-   infinities they are free. Rationale: at `+-oo` the limit exists and is
-   the table's row; `zoo` has no direction, so any value would be a guess
-   (about 50 stream queries stay `None`, e.g. `Q.zero(sign(1/x))` under
-   `Q.real(x)`).
+7. Changed (#24): `re`, `im`, `conjugate`, `sign` at `+oo` and `-oo` are
+   their limits along the real axis (`re = +-oo`, `im = 0`, `conjugate =
+   +-oo`, `sign = +-1`; special-values row V2). At the other kind the
+   encoding states only what holds for every member: along `t*d` (row V2,
+   `u = d/|d|` non-real) `re = t*re(d)` tends to `+-oo` or is `0`, `im`
+   tends to `+-oo`, `conjugate = t*conj(d)` is of the same kind and `sign =
+   u` is a non-real unit; at `zoo`, `re`, `im` and `sign` are `nan` and
+   `conjugate` is `zoo`. Rationale: `conjugate(zoo) = zoo` is a limit
+   (`|conj z| = |z|` grows without bound). `re`, `im` and `sign` have no
+   limit at `zoo` (`re(c + s*I) = c` for every `c` as `s -> oo`), and the
+   table writes `nan` for "no limit" where it has a row (F1: `exp(zoo)`,
+   `exp(oo*d)` with `re(d) = 0`; P5); `re(zoo)` cannot be `+oo` or `-oo`
+   anyway, since `zoo = -zoo` (M3) and `re(-z) = -re(z)`. This is a
+   convention, in the table's spirit, not a theorem; the table itself has
+   no row for these four functions at an infinity. Decision 8 still leaves
+   `frac` of an infinity free (no query needs it). Earlier these were free;
+   the change decides `Q.zero(sign(1/x))` under `Q.real(x)` (False).
 8. New (#18): `floor` and `ceiling` of `+-oo` are `+-oo`, and of the
    other kind (`zoo`, `oo*I`, ...) that kind; `frac` of any infinity is
    free. Rationale: satassume's `templates/integer_funcs.py` states
