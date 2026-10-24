@@ -865,7 +865,7 @@ class Encoder:
         # finite b != 0, finite x: exp(x*log(b))
         cond = R.and_(bnz, X.fin)                                           # And(bnz, x.fin)
         if e.base is not S.Zero:
-            self._principal(t, e.base, e.exp, x, z3.BoolRef(cond, self.ctx))
+            self._principal(t, e.base, e.exp, x, cond)
         # integer x
         xint = R.and_(X.fin, xa["integer"])
         breal = R.and_(B.fin, eq(B.im, num(0)), ne(B.re, num(0)))           # And(b.fin, b.im == 0, b.re != 0)
@@ -905,18 +905,26 @@ class Encoder:
         if isinstance(e.exp, Rational):
             self._rational_power(t, b, e.base, Fraction(int(e.exp.p), int(e.exp.q)))
 
+    @_scoped
     def _principal(self, t: Term, base, xe, x: Term, cond):
-        """Under ``cond`` (finite ``b != 0``, finite ``x``) ``t`` is the
-        principal value ``exp(x*log(b))`` (``_pow``)."""
+        """Under ``cond`` (finite ``b != 0``, finite ``x``; raw) ``t`` is the
+        principal value ``exp(x*log(b))`` (``_pow``).  Raw, as ``_pow``."""
+        R, T, num = self._raw, t.p, self._raw.real
         lit = _polar_literal(base)
         if lit is None:
             val = exp(Mul(xe, log(base, evaluate=False), evaluate=False), evaluate=False)
             # a real negative b: the direction is that of exp(I*pi*x)
             b = self.term(base)
             d = self.term(exp(Mul(S.ImaginaryUnit, S.Pi, xe, evaluate=False), evaluate=False))
-            self._add(z3.Implies(z3.And(cond, b.real(), b.re < 0, x.real()),
-                                 z3.And((t.re > 0) == (d.re > 0), (t.re < 0) == (d.re < 0),
-                                        (t.im > 0) == (d.im > 0), (t.im < 0) == (d.im < 0))))
+            B, D, X = b.p, d.p, x.p
+            sign = lambda f, u, v: R.eq(f(u, num(0)), f(v, num(0)))     # noqa: E731 (f(u, 0) == f(v, 0))
+            # Implies(And(cond, b.real(), b.re < 0, x.real()),
+            #         And((t.re > 0) == (d.re > 0), (t.re < 0) == (d.re < 0),
+            #             (t.im > 0) == (d.im > 0), (t.im < 0) == (d.im < 0)))
+            self._add_raw(R.implies(R.and_(cond, R.and_(B.fin, R.eq(B.im, num(0))), R.lt(B.re, num(0)),
+                                           R.and_(X.fin, R.eq(X.im, num(0)))),
+                                    R.and_(sign(R.gt, T.re, D.re), sign(R.lt, T.re, D.re),
+                                           sign(R.gt, T.im, D.im), sign(R.lt, T.im, D.im))))
         else:
             r, c0 = lit
             factors = []
@@ -931,7 +939,7 @@ class Encoder:
                     rest = [g for g in xe.args if g not in imag]
                     if imag and rest:
                         groups = [g[0] if len(g) == 1 else Add(*g, evaluate=False) for g in (rest, imag)]
-                        cond = z3.And(cond, *[self.term(g).fin for g in xe.args])
+                        cond = R.and_(cond, *[self.term(g).p.fin for g in xe.args])
                 for g in groups:
                     if isinstance(g, Rational):
                         c = Rational(c0.numerator, c0.denominator) * g
@@ -941,11 +949,12 @@ class Encoder:
                         c = Mul(Rational(c0.numerator, c0.denominator), g, evaluate=False)
                     factors.append(exp(Mul(S.ImaginaryUnit, S.Pi, c, evaluate=False), evaluate=False))
             if not factors:
-                self._int_value(t, cond, z3.IntVal(1, self.ctx))
+                self._int_value(t, cond, R.int(1))
                 return
             val = factors[0] if len(factors) == 1 else Mul(*factors, evaluate=False)
         v = self.term(val)
-        self._add(z3.Implies(cond, z3.And(t.fin, t.re == v.re, t.im == v.im)))
+        # Implies(cond, And(t.fin, t.re == v.re, t.im == v.im))
+        self._add_raw(R.implies(cond, R.and_(T.fin, R.eq(T.re, v.p.re), R.eq(T.im, v.p.im))))
         self._same(t, v, cond)
 
     def _rational_power(self, t: Term, b: Term, base, f: Fraction):
