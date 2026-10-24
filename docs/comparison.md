@@ -530,7 +530,8 @@ finite values each is a right inverse of a function that maps the reals
 into the reals and `zoo`.
 
 The rlimit step (#29, decision 11) changes one answer, by the larger
-rlimit (the default solver proves it in about 1,050,000 steps): stream 12208,
+rlimit (the default solver proved it in about 1,050,000 steps; since #28
+it needs fewer than 1,000,000, so decision 12 keeps it): stream 12208,
 `Q.nonnegative(sign(x)*sign(conjugate(x)))` under `Q.negative(re(x))`,
 goes from None to True, and satassume answers None. The argument:
 `re(x)` is a finite negative real. Every infinite `x` has `re(x)` in
@@ -585,7 +586,9 @@ completeness only:
 
 Three of them (the fourth to sixth) were definite at fb92e31 too: #27 and
 #28 made their checks larger, and the 2,000,000 limit hid that. The case
-`n > 0` of the last one (decision 11) is lost as well.
+`n > 0` of the last one (decision 11) is lost in the form of
+tests/test_limits.py, `Q.zero(sign(...) - 1)`; the bench site's form,
+`Eq(sign(...), 1)`, is still True.
 
 ## Speed
 

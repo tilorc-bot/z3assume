@@ -636,7 +636,8 @@ one-line rationale added here.
    formulas through `exp` give, except for `tanh` and `coth`, whose
    quotient `(e**t - e**-t)/(e**t + e**-t)` is `oo/oo` at `+oo`: the
    function is the limit, not the formula's expression at the point.
-11. New (#29): rlimit 2,000,000 per check, and a fallback (plain
+11. New (#29; the rlimit is 1,000,000 again since decision 12): rlimit
+   2,000,000 per check, and a fallback (plain
    preprocessing and the smt core, rlimit 250,000) when the default
    solver runs out of it. Rationale: the default
    solver's nonlinear search depends on the order in which terms were
