@@ -56,7 +56,7 @@ CASES = [
     (Q.positive_infinite(re(x)), Q.positive_infinite(x), True, "re(oo) = oo"),
     (Q.negative_infinite(conjugate(x)), Q.negative_infinite(x), True, "conjugate(-oo) = -oo"),
     (Q.finite(re(x)), Q.infinite(x) & ~Q.extended_real(x), None, "re(oo*I) = 0, re(oo*(1 + I)) = oo"),
-    (Q.finite(re(zoo, evaluate=False)), True, None, "the literal zoo is of the kind of oo*I, whose re is 0"),
+    (Q.finite(re(zoo, evaluate=False)), True, None, "re(zoo) = nan, and finite(nan) is open (row V1)"),
     (Q.zero(re(zoo, evaluate=False)), True, None, "re(zoo) = nan, re(oo*I) = 0: the kind does not tell them apart"),
     (Q.zero(im(oo)), True, True, "im(oo) = 0"),
     (Q.even(re(x)), Q.even(x), True, "re(x) = x for real x"),

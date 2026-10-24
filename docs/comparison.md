@@ -442,7 +442,8 @@ directed non-real infinities `oo*u`), what each of them gives: `re` is
 changes 45 stream answers, all from None; gate2 is unchanged. 24 of them
 were "less" and now agree; 21 are new "more" (satassume None). No answer
 moves between True and False. The arguments, for a symbol `x` that may
-take any value, including the infinities and `nan`:
+be any number or infinity (a free symbol is never `nan`, design.md
+"Values"; `nan` enters only as the value of a term):
 
 - **`re` or `im` given positive or negative rules out every infinity**
   (stream 10449, 10584, 11194: `Q.finite(x)` True under `Q.positive(im(x))`

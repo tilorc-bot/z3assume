@@ -547,15 +547,16 @@ one-line rationale added here.
    `u = d/|d|` non-real) `re = t*re(d)` tends to `+-oo` or is `0`, `im`
    tends to `+-oo`, `conjugate = t*conj(d)` is of the same kind and `sign =
    u` is a non-real unit; at `zoo`, `re`, `im` and `sign` are `nan` and
-   `conjugate` is `zoo`. Rationale: `zoo` has no direction, and there the
-   three have no limit (`re(c + s*I) = c` for every `c` as `s -> oo`) and
-   no value by the table's arithmetic (`re(zoo) = (zoo + zoo)/2`, row A3:
-   `nan`; `sign(zoo) = zoo/|zoo| = zoo*0`, rows F3, P3 and V1: `nan`), and
-   `nan` is the table's "no value" (V1); conjugation is the reflection of
-   the Riemann sphere, which fixes `zoo`. Earlier these were free; the
-   facts above are the ones every reading shares, so they decide
-   `Q.zero(sign(1/x))` under `Q.real(x)` (False) without choosing a
-   direction for `zoo`.
+   `conjugate` is `zoo`. Rationale: `conjugate(zoo) = zoo` is a limit
+   (`|conj z| = |z|` grows without bound). `re`, `im` and `sign` have no
+   limit at `zoo` (`re(c + s*I) = c` for every `c` as `s -> oo`), and the
+   table writes `nan` for "no limit" where it has a row (F1: `exp(zoo)`,
+   `exp(oo*d)` with `re(d) = 0`; P5); `re(zoo)` cannot be `+oo` or `-oo`
+   anyway, since `zoo = -zoo` (M3) and `re(-z) = -re(z)`. This is a
+   convention, in the table's spirit, not a theorem; the table itself has
+   no row for these four functions at an infinity. Decision 8 still leaves
+   `frac` of an infinity free (no query needs it). Earlier these were free;
+   the change decides `Q.zero(sign(1/x))` under `Q.real(x)` (False).
 8. New (#18): `floor` and `ceiling` of `+-oo` are `+-oo`, and of the
    other kind (`zoo`, `oo*I`, ...) that kind; `frac` of any infinity is
    free. Rationale: satassume's `templates/integer_funcs.py` states
