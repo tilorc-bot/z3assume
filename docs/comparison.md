@@ -162,6 +162,8 @@ move to "agree", or to "more" with an argument given here.
 | floor and ceiling (#18) | 60 | 7 | 0 | 3 stream (distinct) |
 | gamma and factorial (#21) | 42 | 5 | 0 | none |
 | `re`, `im`, `conjugate`, `sign` at the `zoo` kind (#24) | 18 | 5 | 0 | 21 stream (distinct) |
+| sums with an infinity, hyperbolic limits (#26) | 1 | 5 | 0 | none |
+| inverse functions off the real axis (#27) | 1 | 4 | 0 | none |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -512,6 +514,16 @@ no query is "more" or contradicting. The arguments:
 
 Wall times (6 jobs, shared machine): stream 152 s, gate2 43 s; no check
 hit the 10 s backstop.
+
+The inverse-functions step (#27; design.md, `_inverse`) changes one
+answer, gate2 2172 `Q.positive(acot(x))` under `Q.imaginary(x)`, from
+"less" to "agree" (None to False, as satassume); the stream answers do
+not change. The argument: `x` is finite and not real. If `w = acot(x)`
+were a finite real, then `cot(w) = x`, but `cot` maps the reals into the
+reals and `zoo`; so `w` is no finite real, and `Q.positive(w)` is False.
+The same holds for the other eleven inverse trigonometric and hyperbolic
+functions, each of which is a right inverse of a function that maps the
+reals into the reals and `zoo`.
 
 ## Speed
 
