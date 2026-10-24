@@ -490,6 +490,13 @@ backstop below after the queries before it). A memo of
 answers keyed by `(P, A)` is kept, as satassume does; it cannot change an
 answer.
 
+The rlimit of a check is 2,000,000 (`RLIMIT`). When the default solver
+runs out of it, the check is tried once more with z3's `qfnia` tactic and
+an rlimit of 250,000 (`FALLBACK_RLIMIT`), not after the wall-clock
+backstop below. Both runs are deterministic, and either `unsat` is a proof,
+so the fallback can only turn a `None` into an answer the axioms entail
+(decision 11).
+
 One exception: z3 does not check `rlimit` everywhere (a nonlinear sat
 check was seen to overrun its rlimit by 68% and run for seconds), so each
 check also has a wall-clock backstop of 10 s. A check stopped by the
@@ -621,3 +628,18 @@ one-line rationale added here.
    formulas through `exp` give, except for `tanh` and `coth`, whose
    quotient `(e**t - e**-t)/(e**t + e**-t)` is `oo/oo` at `+oo`: the
    function is the limit, not the formula's expression at the point.
+11. New (#29): rlimit 2,000,000 per check, and a `qfnia` fallback of
+   250,000 when the default solver runs out of it. Rationale: the default
+   solver's nonlinear search depends on the order in which terms were
+   created and on what ran before in the context, so one added axiom can
+   move a check across its limit with no change in what is true. Two cases
+   of the public wester suite were lost that way by #26 (its axiom "a sum
+   is finite only when every summand is"), and both old answers are right.
+   `sign(x**4 - x) = 1` under `0 <= x <= 1` is False because `x**4 <= x`
+   there. `sign(k*x**n - k*y**n) = 1` under `x > y > 1/10`, `x < 10`,
+   `k > 0` and `0 < n < 10` is True because `t -> t**n` increases on
+   `(0, oo)` for `n > 0`. The first check takes 90,000 steps in a fresh
+   context and over 4,000,000 in `ask`'s order; `qfnia` decides it in
+   about 60,000 either way. The second needs 1,130,000 steps (990,000
+   before #26). The limits are steps, not seconds, so answers stay
+   deterministic. The cost is measured in #29.
