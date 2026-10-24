@@ -614,6 +614,13 @@ class Encoder:
         allint = R.and_(*[x.atoms["integer"] for x in xs])
         # Implies(And(allfin, allint), And(t.atoms["integer"], t.k == Sum([x.k ...])))
         add(R.implies(R.and_(allfin, allint), R.and_(T.atoms["integer"], R.eq(T.k, R.add(*[x.k for x in xs])))))
+        if len(xs) > 1:
+            # the integers are closed under subtraction (#23): an integer
+            # sum of integers and one more summand makes that one an integer
+            for i, x in enumerate(xs):
+                rest = [y.atoms["integer"] for j, y in enumerate(xs) if j != i]
+                # Implies(And(allfin, t.atoms["integer"], *rest), x.atoms["integer"])
+                add(R.implies(R.and_(allfin, T.atoms["integer"], *rest), x.atoms["integer"]))
         add(R.implies(R.or_(*[x.nan for x in xs]), T.nan))      # Implies(Or([x.nan ...]), t.nan)
         # a sum with an infinity among its summands is an infinity or nan,
         # never a number, whatever the kinds (zoo + oo is open otherwise)
