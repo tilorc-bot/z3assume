@@ -42,8 +42,8 @@ CASES = [
     (Q.negative(gamma(x)), Q.gt(x, -1) & Q.lt(x, 0), True, "floor(x) = -1"),
     (Q.positive(gamma(x)), Q.gt(x, -2) & Q.lt(x, -1), True, "floor(x) = -2"),
     (Q.negative(gamma(x)), Q.gt(x, -3) & Q.lt(x, -2), True, "floor(x) = -3"),
-    (Q.negative(gamma(-half)), True, True, "-1/2 in (-1, 0)"),
-    (Q.positive(gamma(Rational(-3, 2))), True, True, "-3/2 in (-2, -1)"),
+    (Q.negative(gamma(-half, evaluate=False)), True, True, "-1/2 in (-1, 0)"),
+    (Q.positive(gamma(Rational(-3, 2), evaluate=False)), True, True, "-3/2 in (-2, -1)"),
     (Q.real(gamma(x)), Q.negative(x) & ~Q.integer(x), True, "real off the poles"),
     (Q.zero(gamma(x)), Q.negative(x) & ~Q.integer(x), False, "no zeros"),
     (Q.negative(gamma(x)), Q.negative(x) & ~Q.integer(x), None, "gamma(-1/2) < 0 < gamma(-3/2)"),
@@ -144,6 +144,8 @@ def test_definite_answers_hold_numerically(seed):
         try:
             r = ask(getattr(Q, pred)(e), a)
         except ValueError:
+            # inconsistent only when no integer lies in (lo, hi)
+            assert integer and hi - lo == 1
             continue
         if r is None:
             continue
