@@ -160,6 +160,7 @@ move to "agree", or to "more" with an argument given here.
 | powers (#14) | 157 | 8 | 0 | 7 gate2 (6 distinct) |
 | rational coefficients over the integers (#16) | 107 | 8 | 0 | none |
 | floor and ceiling (#18) | 60 | 7 | 0 | 3 stream (distinct) |
+| gamma and factorial (#21) | 42 | 5 | 0 | none |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -394,6 +395,42 @@ checks were sat at once. A version with two fresh integers in place of
 `ToInt` (bounds `m <= a < m + 1`) had 12 rlimit stops on the subset and
 the same answers, but lost `ceiling(x) - floor(x) = 1` off the integers
 (rlimit), so `ToInt` stays.
+
+The gamma and factorial step (#21; design.md "Terms: `gamma` and
+`factorial`", decision 9) changes 20 answers, 18 stream and 2 gate2, all
+from "less" to "agree"; no other answer changes and no query is "more".
+The arguments (`factorial(m) = gamma(m + 1)`):
+
+- **`gamma` on the positive reals** (stream 14483 `Q.zero(gamma(x))`,
+  14486 `Q.negative(gamma(x))`, False under `Q.positive(x)`): for a finite
+  real `x > 0`, `gamma(x)` is the integral of `s**(x - 1)*e**-s > 0` over
+  `(0, oo)`, a positive real.
+- **The factorial of a nonnegative integer** (stream 14520 to 15132,
+  16 queries, `Q.zero` and `Q.negative` False; gate2 1806, 1853,
+  `Q.positive(factorial(x))` True under `Q.integer(x) & Q.positive(x)`):
+  the argument `m` is an integer `>= 0`: `x - 1` for an integer `x > 0`;
+  `n - k` with `k <= n` (as `Q.le(k, n)` or `Q.nonnegative(n - k)`), or
+  with `k < 0 <= n`; `x - k` with `x = 0` or `x > 0` and `k < 0`. Then
+  `m! = gamma(m + 1)` is a positive integer (`gamma(1) = 1` and
+  `gamma(j + 1) = j*gamma(j)`), neither zero nor negative. Gate2 1807 and
+  1854 (`Q.positive(factorial(x))` under `Q.integer(x)` alone) stay None,
+  as for satassume: `factorial(-1) = zoo`.
+
+No gamma or factorial query is "less" any more; the corpora have no
+`loggamma`, `RisingFactorial`, `binomial` or other member of the family.
+Two checks hit the 10 s backstop, neither in a gamma or factorial query
+and neither changing an answer: stream 4181 (as in the floor step) and
+gate2 916 (`Q.finite(x*y*z)` under `Q.finite(x)`, None on both sides;
+alone 8.5 s with one rlimit stop and no timeout). The 22 gamma and
+factorial queries take 1.7 s of CPU in all on this step and 0.9 s on main
+(7310080), run alone in one process (seven alternating rounds, memo
+cleared per query), with no check stopped by the rlimit on either.
+Wall times (6 jobs, shared machine): stream 268 s, gate2 59 s at load 13
+to 15 (floor step's runs: 195 s, 57 s at load 7 to 12). Run back to back
+right after, the stream took 316 s on main (load 13 to 19) and 224 s on
+this step (load 11 to 19), each with the answers of its own run and only
+backstop stops outside gamma (main 4, this step 2, stream 4181 and 5012
+on both); the gap is load, not the 22 queries.
 
 ## Speed
 

@@ -367,6 +367,24 @@ difference, harmless while non-commutative input is out of scope).
   frac(z)` is a Gaussian integer). `nan` gives `nan` (N1); an infinity
   keeps its kind under `floor` and `ceiling` (decision 8); `frac` of an
   infinity is free.
+- `gamma` and `factorial` (issue #21). `factorial(z) = gamma(z + 1)`
+  (decision 9), with the sum `z + 1` an unevaluated term and, for finite
+  `z`, `z + 1` an integer iff `z` is. For `gamma(w)`, theorems about
+  Euler's function, each argued in `encode.py`: the poles are exactly the
+  nonpositive integers and the value there is `zoo` (decision 9); at every
+  other finite `w` the value is finite and nonzero (`1/gamma` is entire);
+  real and positive for real `w > 0` (Euler's integral); real with the
+  sign `(-1)**floor(w)` for a real non-integer `w < 0` (the recurrence down
+  to `(0, 1)`), stated with a fresh integer `h`: `w` in `(2*h, 2*h + 1)`
+  and positive, or in `(2*h - 1, 2*h)` and negative; `(n - 1)!` at a
+  positive integer `n`: `1, 1, 2` for `n = 1, 2, 3`, even and `>= 6` from
+  `n = 4` on. `gamma(oo) = oo` (the limit); `gamma(-oo)` and `gamma` of the
+  other kind are free; `nan` gives `nan` (N1). Not encoded:
+  `gamma(conjugate(w)) = conjugate(gamma(w))`, values at other points
+  (`gamma(1/2) = sqrt(pi)`), rationality or transcendence off the
+  integers, and `loggamma`, `RisingFactorial`, `FallingFactorial`,
+  `binomial`, `factorial2`, `subfactorial`, the polygamma family (opaque;
+  no query of the corpora has them).
 - Field closure, as ground axioms per node (z3 has no theory of the
   rationals inside the reals): a sum, product or integer power of rational
   (algebraic) values is rational (algebraic); a sum with all terms but one
@@ -536,3 +554,16 @@ one-line rationale added here.
    `d`, and on the Riemann sphere to `zoo`. `frac` has no limit at
    `+-oo` (SymPy writes `AccumBounds(0, 1)`, a set) and nothing written
    gives `frac(zoo)` a value.
+9. New (#21): `factorial(z) = gamma(z + 1)` for every `z`, and `gamma` at
+   a nonpositive integer (so `factorial` at a negative integer) is `zoo`;
+   `gamma(oo) = factorial(oo) = oo`; `gamma(-oo)` and `gamma` of the other
+   kind of infinity are free. Rationale: SymPy defines `factorial` on the
+   nonnegative integers with `n! = gamma(n + 1)` and "factorial of a
+   negative integer is complex infinity" (its docstring), and satassume
+   writes the whole convention down (templates/integer_funcs.py:
+   `factorial(x) == gamma(x + 1)` off the integers, `factorial(oo) == oo`;
+   templates/gamma_functions.py: `gamma(-n) == zoo`, `gamma(oo) == oo`);
+   the special-values table has no row. The values are limits: at a pole
+   `|gamma|` tends to infinity from every direction (the point `zoo` of
+   the Riemann sphere, as `1/0 = zoo`), and `gamma(x) -> oo` along the
+   real axis; at `-oo` the poles accumulate, so there is no limit.
