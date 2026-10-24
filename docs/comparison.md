@@ -165,6 +165,7 @@ move to "agree", or to "more" with an argument given here.
 | sums with an infinity, hyperbolic limits (#26) | 1 | 5 | 0 | none |
 | inverse functions off the real axis (#27) | 1 | 4 | 0 | none |
 | rlimit 2,000,000 and a fallback check (#29) | 1 | 4 | 0 | 1 stream |
+| the converse integer axiom for sums (#28) | 1 | 4 | 0 | none |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -537,6 +538,13 @@ goes from None to True, and satassume answers None. The argument:
 (x/|x|)*(conjugate(x)/|x|) = |x|**2/|x|**2 = 1`, which is nonnegative. Gate2
 answers do not change, and nothing contradicts. Two cases of the public
 wester suite come back (decision 11).
+
+The converse integer axiom for sums (#28, closes #23; design.md "Terms:
+`Add`") changes no answer on either corpus. It helps queries outside them,
+for example `Q.real(gamma(x + 1))` under `Q.real(x) & ~Q.integer(x)` (now
+True). Measured on fb92e31 (before #29), it made both corpora about 5%
+faster (pinned pareto1 core, three rotating rounds: gate2 31.75 s to
+29.96 s, every 8th stream query 32.59 s to 30.72 s).
 
 ## Speed
 

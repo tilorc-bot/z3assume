@@ -68,6 +68,7 @@ CASES = [
     (Q.positive(factorial(x)), Q.integer(x), None, "(-1)! = zoo"),
     (Q.positive(factorial(x)), Q.nonnegative(x), True, "gamma(x + 1) for x + 1 > 0"),
     (Q.integer(factorial(x)), Q.integer(x) & Q.nonnegative(x), True, "x! = 1*2*...*x"),
+    (Q.real(gamma(x + 1)), Q.real(x) & ~Q.integer(x), True, "x + 1 no integer (#23), no pole"),
     (Q.integer(factorial(x)), Q.nonnegative(x), None, "factorial(1/2) = sqrt(pi)/2"),
     (Q.odd(factorial(x)), Q.zero(x), True, "0! = 1"),
     (Q.even(factorial(x)), Q.integer(x) & Q.gt(x, 1), True, "x! has the factor 2"),
