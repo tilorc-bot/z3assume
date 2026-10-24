@@ -1,7 +1,7 @@
 """The first slice: the eleven predicates on polynomial and rational
 expressions.  Every expected answer has its argument next to it."""
 import pytest
-from sympy import Add, Eq, Mul, Pow, Q, Rational, S, Symbol, nan, symbols, zoo
+from sympy import Add, Eq, I, Mul, Pow, Q, Rational, S, Symbol, nan, symbols, zoo
 
 from z3assume import ask
 
@@ -73,6 +73,9 @@ CASES = [
     (Q.zero(x - y), Q.ne(x, y), False, "x - y = 0 needs finite x, y, so x = y"),
     (Q.zero(x + y), Q.infinite(x) & Q.infinite(y), False, "oo + zoo, oo*I + oo: an infinity or nan"),
     (Q.finite(x + y), Q.infinite(x) & Q.infinite(y), None, "oo - oo = nan, finite(nan) open (V1)"),
+    (Q.positive_infinite(x + I), Q.positive_infinite(x), None, "oo + I: oo for SymPy, off the real axis for satassume"),
+    (Q.infinite(x + I), Q.positive_infinite(x), True, "an infinity plus a finite value"),
+    (Q.positive_infinite(x + 1), Q.positive_infinite(x), True, "oo plus a real number"),
     (Q.positive(2), Q.positive(x) & Q.negative(x), True, "a constant is decided without the assumptions"),
     (Q.prime(7), True, True, "7 is prime"),
     (Q.composite(91), True, True, "91 = 7*13"),

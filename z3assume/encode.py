@@ -618,11 +618,16 @@ class Encoder:
         # a sum with an infinity among its summands is an infinity or nan,
         # never a number, whatever the kinds (zoo + oo is open otherwise)
         add(R.implies(T.fin, allfin))                             # Implies(t.fin, allfin)
-        # +-oo among finite values and the same infinity
+        # +-oo among real values and the same infinity; among finite values
+        # (oo + I: oo for SymPy, an infinity off the real axis for
+        # satassume, decision 3) +-oo or the other kind
         for inf, kind in ((T.pinf, "pinf"), (T.ninf, "ninf")):
-            # Implies(And(Or([x.<kind> ...]), And([Or(x.fin, x.<kind>) ...])), inf)
-            add(R.implies(R.and_(R.or_(*[getattr(x, kind) for x in xs]),
-                                 R.and_(*[R.or_(x.fin, getattr(x, kind)) for x in xs])), inf))
+            some = R.or_(*[getattr(x, kind) for x in xs])
+            # Implies(And(some, And([Or(x.real(), x.<kind>) ...])), inf)
+            add(R.implies(R.and_(some, R.and_(*[R.or_(R.and_(x.fin, R.eq(x.im, R.real(0))), getattr(x, kind))
+                                                for x in xs])), inf))
+            # Implies(And(some, And([Or(x.fin, x.<kind>) ...])), Or(inf, t.cinf))
+            add(R.implies(R.and_(some, R.and_(*[R.or_(x.fin, getattr(x, kind)) for x in xs])), R.or_(inf, T.cinf)))
         # Implies(And(Or([x.pinf ...]), Or([x.ninf ...])), t.nan)
         add(R.implies(R.and_(R.or_(*[x.pinf for x in xs]), R.or_(*[x.ninf for x in xs])), T.nan))
         for i, x in enumerate(xs):

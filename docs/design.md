@@ -134,8 +134,13 @@ difference, harmless while non-commutative input is out of scope).
   positive=True)`) become facts, as satassume reads them.
 - `Add`: when all arguments are finite, finite with `re` and `im` the sums;
   when the arguments are integers, `k_t` is the sum of their `k`. With an
-  infinite argument: `+oo` plus finite or `+oo` arguments is `+oo` (likewise
-  `-oo`); `+oo` and `-oo` together give `nan`; one other infinity among
+  infinite argument: `+oo` plus real or `+oo` arguments is `+oo` (likewise
+  `-oo`); with a non-real finite argument it is `+oo` or an infinity of the
+  other kind, as the conventions disagree (decision 3): SymPy evaluates
+  `oo + I = oo`, satassume calls it "an infinity off the real axis"
+  (templates/add.py, its test expects None for `Q.negative_infinite(ninf +
+  I)`), and `cosh(t + I)` tends to an infinity of direction `e**I`, so
+  `cosh(x + I)` under `Q.positive_infinite(x)` must not be `cosh(oo)`; `+oo` and `-oo` together give `nan`; one other infinity among
   finite arguments gives an infinite non-real value; any `nan` gives `nan`;
   in the remaining cases (two infinities of the other kind, or one with
   `+-oo`) the sum is an infinity or `nan`, never a number: the sum is

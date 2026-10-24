@@ -143,6 +143,8 @@ CASES = [
     (Q.positive(sinh(x)), Q.gt(x, 0), None, "sinh(oo) = oo is not positive"),
     (Q.infinite(cosh(x)), Q.extended_real(x) & Q.infinite(x), True, "cosh(+-oo) = oo"),
     (Q.zero(coth(x)), Q.infinite(x), None, "no limit at oo*I (coth(I*t) = -I*cot(t)) or zoo"),
+    (Q.extended_real(cosh(x + I)), Q.positive_infinite(x), None, "x + I is oo or an infinity off the real axis"),
+    (Q.positive_infinite(sinh(x + y)), Q.positive_infinite(x) & Q.eq(y, I * pi), None, "sinh(t + I*pi) = -sinh(t)"),
 ]
 
 
