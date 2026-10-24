@@ -1730,9 +1730,10 @@ class Encoder:
           ``asin``, ``acos``, ``atanh``; ``x < 1`` for ``acosh``; ``|x| <
           1`` for ``acoth``) ``w`` is not real, since ``f(w) = x`` and
           ``f`` maps the reals into its range.  For a finite non-real
-          ``x`` ``w`` is not real either: each of the twelve functions maps
-          the reals into the reals and ``zoo`` (``cot``, ``coth``, ``csc``,
-          ``csch``, ``sec``, ``tan`` have poles there).
+          ``x`` ``w`` is not real either: each forward function ``f``
+          (``sin``, ``cos``, ``tan``, ``cot`` and their hyperbolic versions)
+          maps the reals into the reals and ``zoo`` (``tan``, ``cot``,
+          ``coth`` have real poles).
         - ``asin``, ``acos``, ``asinh``, ``acosh`` of a finite ``x`` are
           finite: the logarithm's argument is never 0 (``(I*x + s)*(-I*x +
           s) = s**2 + x**2 = 1`` for ``s**2 = 1 - x**2``, likewise for the

@@ -521,9 +521,10 @@ answer, gate2 2172 `Q.positive(acot(x))` under `Q.imaginary(x)`, from
 not change. The argument: `x` is finite and not real. If `w = acot(x)`
 were a finite real, then `cot(w) = x`, but `cot` maps the reals into the
 reals and `zoo`; so `w` is no finite real, and `Q.positive(w)` is False.
-The same holds for the other eleven inverse trigonometric and hyperbolic
-functions, each of which is a right inverse of a function that maps the
-reals into the reals and `zoo`.
+The same holds for the other seven inverse functions z3assume encodes
+(`asin`, `acos`, `atan`, `asinh`, `acosh`, `atanh`, `acoth`): on its
+finite values each is a right inverse of a function that maps the reals
+into the reals and `zoo`.
 
 ## Speed
 
