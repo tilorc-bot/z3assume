@@ -159,6 +159,7 @@ move to "agree", or to "more" with an argument given here.
 | trigonometric and hyperbolic (#13) | 197 | 200 | 0 | 9 stream, 7 gate2 (13 distinct) |
 | powers (#14) | 157 | 8 | 0 | 7 gate2 (6 distinct) |
 | rational coefficients over the integers (#16) | 107 | 8 | 0 | none |
+| floor and ceiling (#18) | 60 | 7 | 0 | 3 stream (distinct) |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -349,6 +350,50 @@ increase is load: the problem of a query without such a power is
 unchanged (but for `exp(I*pi*c)`), and alone such queries vary up to 2x
 between runs (stream 3205: 3.6 s and 7.7 s; gate2 916: 8.4 s on both
 branches, 0.04 s in the stream run). A pinned benchmark was not run.
+
+Arguments for the 3 new answers of the floor and ceiling step (design.md
+"Terms: `floor`, `ceiling`, `frac`"; satassume None, all stream):
+
+- **`floor` of a finite real is an integer** (4961, 5004,
+  `Q.integer(floor(x/pi + 1/2))` True under `Q.ge(x, -pi/2)` and
+  `Q.le(x, F)` with the Floats `1.5707963267948967`, `1.571`): a relation
+  holds only between extended reals, and the Float bound is finite, so
+  `x` is a finite real (as in the Float step's argument), and so is
+  `x/pi + 1/2` (`pi` finite, nonzero); the greatest integer `<=` a finite
+  real is an integer.
+- **`I*pi*floor(x/pi + 1/2)` is not zero for `2 <= x <= 5`** (5171,
+  False): `x/pi + 1/2` lies in `[2/pi + 1/2, 5/pi + 1/2]`, inside
+  `(1.13, 2.10)` (`3.14 < pi < 3.15`), so its floor is 1 or 2, nonzero,
+  and `I*pi` times a nonzero integer is nonzero.
+
+The other 47 stream answers that moved, all 47 floor and ceiling queries
+that were "less", now agree with satassume: the integer and finiteness
+of `floor(x/pi + 1/2)`, `floor((-x + pi/2)/pi + 1/2)` and
+`x - 2*pi*floor(x/(2*pi) + 1/2)` for finite real `x` (assumed real, or
+in an interval), and `re`, `im` of `floor(y)`, `ceiling(y)` integers and
+`ceiling(y)` finite for finite `y` (each part is rounded). On gate2
+`Q.irrational(ceiling(y))` (2836) moved to agree (False: a Gaussian
+integer is rational or not real, and an infinity or `nan` is not real).
+No floor or ceiling query is "less" any more.
+
+One check hit the 10 s backstop: stream 4181 (`Q.zero(tan(x))` under
+`-pi/2 <= x < pi/2`, no floor), None in the run, as in the base run and
+for satassume; alone it takes 2.9 s with no timeout. Wall times (6 jobs,
+shared machine, load average 7 to 12): stream 195 s, gate2 57 s (base
+runs: 206 s, 29 s). Gate2 has 7 floor queries; run back to back with main
+(c68563e) at load 11, gate2 took 50.7 s on main and 54.1 s on this step,
+so its gap is load. The 284 stream queries with `floor`, `ceiling` or
+`frac` do cost more: run alone, alternating with main (6 jobs, load 11
+to 12), 11 s and 13 s wall (52 s and 67 s summed) on main, 46 s to 82 s
+(212 s to 397 s summed) on this step, about 4x, with 16 checks stopped by
+the rlimit (each answer None, as satassume's). They are the angle
+reductions `x - 2*pi*floor(x/(2*pi) + 1/2)` and their relatives: the
+floor of a nonlinear real (`x/pi`), where model search over integers and
+nonlinear reals is slow; on main the floor was a free value and these
+checks were sat at once. A version with two fresh integers in place of
+`ToInt` (bounds `m <= a < m + 1`) had 12 rlimit stops on the subset and
+the same answers, but lost `ceiling(x) - floor(x) = 1` off the integers
+(rlimit), so `ToInt` stays.
 
 ## Speed
 
