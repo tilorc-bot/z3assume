@@ -47,7 +47,11 @@ docs/special-values.md (open PR satassume#293; the rows used are cited
 where they are used: V1-V3, N1, P1-P6, F1-F3, M3). Where satassume states
 nothing, z3assume uses the table in SymPy's `Pow` docstring (`oo**-1 =
 0`); where the two disagree (`nan**0`: N1 says `nan`, SymPy's table `1`)
-the value is left free (decision 3).
+the value is left free (decision 3). A sum, product or function value
+is one point of `D`, never a limit: limits only argue which point a
+function takes at a point (decisions 7 to 10), so `oo + I` is a point
+(`+oo` for SymPy, an infinity of the other kind for satassume), and
+`(x + I) - I = x` is no identity of `D`.
 
 For every term `t` (every subexpression the query reaches, keyed by the
 SymPy object, so equal subexpressions share their variables) z3assume
@@ -134,10 +138,26 @@ difference, harmless while non-commutative input is out of scope).
   positive=True)`) become facts, as satassume reads them.
 - `Add`: when all arguments are finite, finite with `re` and `im` the sums;
   when the arguments are integers, `k_t` is the sum of their `k`. With an
-  infinite argument: `+oo` plus finite or `+oo` arguments is `+oo` (likewise
-  `-oo`); `+oo` and `-oo` together give `nan`; one other infinity among
+  infinite argument: `+oo` plus real or `+oo` arguments is `+oo` (likewise
+  `-oo`); with a non-real finite argument it is `+oo` or an infinity of the
+  other kind, as the conventions disagree (decision 3): SymPy evaluates
+  `oo + I = oo`, satassume calls it "an infinity off the real axis"
+  (templates/add.py, its test expects None for `Q.negative_infinite(ninf +
+  I)`). The sum is one value of `D` (see "Values"), either of them, not
+  a limit: `cosh(x + I)` under `Q.positive_infinite(x)` is `cosh(oo)` or
+  `cosh` of a value of the other kind, so it stays open, while every value
+  allowed has `im` in `{0, +-oo, nan}`; `+oo` and `-oo` together give
+  `nan`; one other infinity among
   finite arguments gives an infinite non-real value; any `nan` gives `nan`;
-  nothing is said about the remaining cases.
+  in the remaining cases (two infinities of the other kind, or one with
+  `+-oo`) the sum is an infinity or `nan`, never a number: the sum is
+  finite only when every argument is (#26). Argument: an infinity is a
+  limit point of finite values of unbounded modulus; `w + v` with `|w|`
+  unbounded and `v` bounded stays unbounded, and where two unbounded
+  terms can cancel (`oo - oo`, `zoo + zoo`, `oo*I - oo*I`) the limit
+  depends on the path, which is `nan` (satassume docs/design.md: "`oo +
+  zoo`, `oo*I - oo*I` and `oo + nan` are `nan`, #187"). So `Q.zero(i -
+  j)` is False under `Q.infinite(i)` and under `Q.ne(i, j)`.
 - `Mul`: the complex product when all arguments are finite (and the integer
   product of the `k`s for integer arguments); `c*x` with a Rational
   `c = 1/q` or `-1/q` (`q > 1`) and a finite `x` makes `x = q*(c*x)` (or
@@ -303,9 +323,12 @@ difference, harmless while non-commutative input is out of scope).
   `log` with two arguments (unevaluated), and Gelfond-Schneider for
   `exp`/`log` terms (it is encoded for `Pow`, above).
 - `sin`, `cos`, `tan`, `cot`, `sec`, `csc` and `sinh`, `cosh`, `tanh`,
-  `coth`, `sech`, `csch`. Special values: `nan` gives `nan` (N1); an
-  infinite argument leaves the value free (satassume's table has no row
-  for them and names `sin(oo)` as a point no row covers). For finite
+  `coth`, `sech`, `csch`. Special values: `nan` gives `nan` (N1); the
+  hyperbolic functions at `+-oo` are their limits, `cosh(+-oo) = oo`,
+  `sinh(+-oo) = +-oo`, `tanh(+-oo) = coth(+-oo) = +-1`, `sech(+-oo) =
+  csch(+-oo) = 0` (decision 10); any other infinite argument leaves the
+  value free (satassume's table has no row for them and names `sin(oo)`
+  as a point no row covers). For finite
   `z = a + b*I`, fresh reals `C, S = cos u, sin u` and `H, K = cosh v,
   sinh v`, shared by all functions of `z`, with `(u, v) = (a, b)` for the
   circular family and `(b, a)` for the hyperbolic one, give the values
@@ -579,3 +602,22 @@ one-line rationale added here.
    `|gamma|` tends to infinity from every direction (the point `zoo` of
    the Riemann sphere, as `1/0 = zoo`), and `gamma(x) -> oo` along the
    real axis; at `-oo` the poles accumulate, so there is no limit.
+10. New (#26): `cosh`, `sinh`, `tanh`, `coth`, `sech`, `csch` at `+oo`
+   and `-oo` are their limits along the real axis: `cosh(+-oo) = oo`,
+   `sinh(+-oo) = +-oo`, `tanh(+-oo) = coth(+-oo) = +-1`, `sech(+-oo) =
+   csch(+-oo) = 0`; at `zoo` and the directed non-real infinities, and
+   the circular functions at every infinity, the value stays free.
+   Rationale: satassume writes this convention down
+   (templates/hyperbolic.py: "the limit at a real infinity ..., no claim
+   at a non-real infinite argument"; the special-values table has no
+   row), and the limits exist: `cosh t, |sinh t| >= e**|t|/2 - 1/2`
+   tend to `oo` with the sign of `t` for `sinh`; `tanh t = 1 - 2/(e**(2t)
+   + 1)` tends to `+-1`, and so does `coth = 1/tanh`; `sech`, `csch`
+   are reciprocals of values of unbounded modulus. Along `I*t` they are
+   periodic (`cosh(I*t) = cos t`), so there is no limit at `oo*I`, nor at
+   `zoo`. These are the decision 7-9 rule: a limit along the direction
+   of the infinity, written down by satassume. (SymPy evaluates the same
+   values, which is not the argument, #247.) It is also the value the
+   formulas through `exp` give, except for `tanh` and `coth`, whose
+   quotient `(e**t - e**-t)/(e**t + e**-t)` is `oo/oo` at `+oo`: the
+   function is the limit, not the formula's expression at the point.
