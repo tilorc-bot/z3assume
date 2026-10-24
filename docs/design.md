@@ -47,7 +47,11 @@ docs/special-values.md (open PR satassume#293; the rows used are cited
 where they are used: V1-V3, N1, P1-P6, F1-F3, M3). Where satassume states
 nothing, z3assume uses the table in SymPy's `Pow` docstring (`oo**-1 =
 0`); where the two disagree (`nan**0`: N1 says `nan`, SymPy's table `1`)
-the value is left free (decision 3).
+the value is left free (decision 3). A sum, product or function value
+is one point of `D`, never a limit: limits only argue which point a
+function takes at a point (decisions 7 to 10), so `oo + I` is a point
+(`+oo` for SymPy, an infinity of the other kind for satassume), and
+`(x + I) - I = x` is no identity of `D`.
 
 For every term `t` (every subexpression the query reaches, keyed by the
 SymPy object, so equal subexpressions share their variables) z3assume
@@ -139,8 +143,11 @@ difference, harmless while non-commutative input is out of scope).
   other kind, as the conventions disagree (decision 3): SymPy evaluates
   `oo + I = oo`, satassume calls it "an infinity off the real axis"
   (templates/add.py, its test expects None for `Q.negative_infinite(ninf +
-  I)`), and `cosh(t + I)` tends to an infinity of direction `e**I`, so
-  `cosh(x + I)` under `Q.positive_infinite(x)` must not be `cosh(oo)`; `+oo` and `-oo` together give `nan`; one other infinity among
+  I)`). The sum is one value of `D` (see "Values"), either of them, not
+  a limit: `cosh(x + I)` under `Q.positive_infinite(x)` is `cosh(oo)` or
+  `cosh` of a value of the other kind, so it stays open, while every value
+  allowed has `im` in `{0, +-oo, nan}`; `+oo` and `-oo` together give
+  `nan`; one other infinity among
   finite arguments gives an infinite non-real value; any `nan` gives `nan`;
   in the remaining cases (two infinities of the other kind, or one with
   `+-oo`) the sum is an infinity or `nan`, never a number: the sum is
