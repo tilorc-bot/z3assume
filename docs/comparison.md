@@ -485,6 +485,32 @@ Still "less" in this class: stream 12097 `Q.finite(sign(x))` under
 where `sign` is `nan`, and `Q.finite(nan)` is left open (row V1). No
 check hit the backstop on the stream; one gate2 check did, with the
 answer unchanged.
+The sums-with-an-infinity and hyperbolic-limits step (#26; design.md
+"Terms: `Add`" and decision 10) changes 17 stream answers, all from "less"
+to "agree" (None to False, as satassume); gate2 answers do not change and
+no query is "more" or contradicting. The arguments:
+
+- **A sum with an infinite summand is not a number** (stream 15830 to
+  15833, 15853 to 15856: `Q.zero(i - j)` and `Q.nonzero(i - j)` with
+  `Q.infinite`, `Q.positive_infinite` or `Q.negative_infinite` of `i` or
+  `j`, the predicate being the infinity; 15839, 15848, 15942:
+  `Q.zero(i - j)` under `Q.ne(i, j)` or `Q.ne(j, i)`): `i - j` is finite
+  only when `i` and `j` are (design.md "Terms: `Add`": a bounded term
+  cannot cancel an unbounded one, and two unbounded ones that can cancel
+  give `nan`). `Q.zero(i - j)` and `Q.nonzero(i - j)` both make `i - j` a
+  finite number, so `i`, `j` are finite; then an infinite `i` or `j` is
+  impossible, and `i - j = 0` gives `i = j`, against `Q.ne(i, j)`.
+- **`coth` on `(0, oo]`** (stream 6395, 6405, 6415: `Q.zero(coth(x))`
+  under `Q.extended_positive(x)`, `Q.ge(x, 1)`, `Q.gt(x, 0)`): for finite
+  `x > 0`, `coth x = cosh x/sinh x > 1`, as `cosh x > sinh x > 0`; at
+  `x = oo` it is `1` (decision 10). Never zero.
+- **`cosh` on `(-1, oo]`** (stream 6477, 6487, 6493: `Q.zero(cosh(x))`
+  under `Q.extended_nonnegative(x)`, `Q.ge(x, 0)`, `Q.gt(x, -1)`): for
+  finite real `x`, `cosh x = (e**x + e**-x)/2 >= 1`; `cosh(oo) = oo`
+  (decision 10). Never zero.
+
+Wall times (6 jobs, shared machine): stream 152 s, gate2 43 s; no check
+hit the 10 s backstop.
 
 ## Speed
 
