@@ -350,6 +350,23 @@ difference, harmless while non-commutative input is out of scope).
   value are finite. `nan` gives `nan`; infinities leave the value free
   (`atan(oo) = pi/2` is a limit no row states). `asec`, `acsc`, `asech`,
   `acsch` stay opaque.
+- `floor`, `ceiling`, `frac` (issue #18). SymPy's definition for a
+  complex argument rounds each part (the `floor` and `ceiling`
+  docstrings: "taking the floor of the real and imaginary parts
+  separately"; satassume's `templates/integer_funcs.py` and
+  `functions.py` say the same): for finite `z = a + b*I`, `floor(z) =
+  floor(a) + floor(b)*I` with z3's `ToInt` (exactly the floor of a real,
+  the integer `m` with `m <= a < m + 1`), `ceiling(a) = -floor(-a)`, and
+  `frac(z) = z - floor(z)` (SymPy's stated definition for real `x`, and
+  its rewrite `frac(x) -> x - floor(x)` for any `x`, with the documented
+  complex floor; the docstring's complex example agrees, but an example is
+  an evaluation, not the ground). The value of `floor` and
+  `ceiling` is a Gaussian integer: algebraic, real exactly when the
+  rounded imaginary part is 0, and then the integer `k`; `frac(z)` is
+  algebraic iff `z` is, and for real `z` rational iff `z` is (`z -
+  frac(z)` is a Gaussian integer). `nan` gives `nan` (N1); an infinity
+  keeps its kind under `floor` and `ceiling` (decision 8); `frac` of an
+  infinity is free.
 - Field closure, as ground axioms per node (z3 has no theory of the
   rationals inside the reals): a sum, product or integer power of rational
   (algebraic) values is rational (algebraic); a sum with all terms but one
@@ -510,3 +527,12 @@ one-line rationale added here.
    the table's row; `zoo` has no direction, so any value would be a guess
    (about 50 stream queries stay `None`, e.g. `Q.zero(sign(1/x))` under
    `Q.real(x)`).
+8. New (#18): `floor` and `ceiling` of `+-oo` are `+-oo`, and of the
+   other kind (`zoo`, `oo*I`, ...) that kind; `frac` of any infinity is
+   free. Rationale: satassume's `templates/integer_funcs.py` states
+   `floor(+-oo) == +-oo` and `floor(zoo) == zoo` (the special-values table
+   has no row), and they are limits: `|floor(w) - w| < 2` for finite `w`,
+   so along `t*d` (row V2) `floor(t*d)` tends to the infinity of direction
+   `d`, and on the Riemann sphere to `zoo`. `frac` has no limit at
+   `+-oo` (SymPy writes `AccumBounds(0, 1)`, a set) and nothing written
+   gives `frac(zoo)` a value.

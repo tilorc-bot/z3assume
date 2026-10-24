@@ -23,6 +23,7 @@ from sympy.core.power import Pow
 from sympy.core.relational import Relational
 from sympy.functions.elementary.complexes import Abs, conjugate, im as Im, re as Re, sign
 from sympy.functions.elementary.exponential import exp, log
+from sympy.functions.elementary.integers import ceiling, floor, frac
 from sympy.functions.elementary.hyperbolic import (acosh, acoth, asinh, atanh, cosh, coth, csch, sech, sinh,
                                                    tanh)
 from sympy.functions.elementary.trigonometric import acos, acot, asin, atan, cos, cot, csc, sec, sin, tan
@@ -507,6 +508,8 @@ class Encoder:
             self._trig_function(t, *TRIG[type(e)], self.term(e.args[0]))
         elif type(e) in INVERSE and len(e.args) == 1:
             self._inverse(t, type(e), self.term(e.args[0]))
+        elif type(e) in (floor, ceiling, frac) and len(e.args) == 1:   # not a user subclass
+            self._round(t, type(e), self.term(e.args[0]))
         else:
             self._opaque(t, e)
 
@@ -982,6 +985,65 @@ class Encoder:
             self._add(z3.Implies(z3.And(z.fin, zim != 0), z3.And(t.fin, t.re * m == zre, t.im * m == zim,
                                                                              t.re * t.re + t.im * t.im == 1)),
                       z3.Implies(z3.And(z.fin, za["algebraic"]), a["algebraic"]))
+
+    def _round(self, t: Term, f, z: Term):
+        """``floor``, ``ceiling`` and ``frac`` of ``z`` (docs/design.md
+        "Terms", issue #18).
+
+        Finite ``z = a + b*I``: SymPy's definition (the docstrings of
+        ``floor`` and ``ceiling``: "generalizes floor to complex numbers by
+        taking the floor of the real and imaginary parts separately";
+        satassume's templates/integer_funcs.py and functions.py state the
+        same) is ``floor(z) = floor(a) + floor(b)*I``.  z3's ``ToInt`` is
+        exactly the floor of a real (the integer ``n`` with
+        ``n <= a < n + 1``), so the parts are exact; ``ceiling(a) =
+        -floor(-a)`` (the least integer ``>= a`` is minus the greatest
+        integer ``<= -a``).  ``frac(z) = z - floor(z)``: SymPy defines
+        ``frac(x) = x - floor(x)`` for real ``x`` and rewrites ``frac(x)``
+        as ``x - floor(x)`` for any ``x``; with the documented complex
+        floor that is the formula for complex ``z`` too (the docstring's
+        complex example agrees, but an example is an evaluation, not the
+        ground).
+
+        The value of ``floor``/``ceiling`` is a Gaussian integer: algebraic
+        (a root of ``w**2 - 2*m*w + m**2 + n**2``), real exactly when the
+        rounded imaginary part is ``0``, and then the integer ``k``.  For
+        ``frac``: ``z = frac(z) + floor(z)`` with a Gaussian integer
+        ``floor(z)``, and the algebraic numbers are a field, so ``frac(z)``
+        is algebraic iff ``z`` is; for real ``z`` likewise rational iff
+        ``z`` is rational (the integers are in the rational field).
+
+        Special values: ``nan`` gives ``nan`` (special-values N1).  An
+        infinity: ``floor(+-oo) = +-oo`` and ``floor(zoo) = zoo``, as
+        satassume's templates/integer_funcs.py states them (the
+        "Values follow SymPy's conventions" paragraph).  They are the
+        limits, too: ``|floor(w) - w| < 2`` for every finite ``w`` (each
+        part moves by less than 1), so ``floor(w)`` tends to the same
+        point at infinity as ``w``: along ``t*d`` (row V2) to the infinity
+        of direction ``d`` (``+-oo`` for ``d = +-1``, a directed non-real
+        infinity otherwise), and to ``zoo`` on the Riemann sphere.  So the
+        kind is kept: ``+-oo`` to ``+-oo``, the other kind (``zoo`` and
+        the directed non-real infinities) to that kind.  Likewise for
+        ``ceiling``.  ``frac`` of an infinity is free: no definition and
+        no row gives it a value (SymPy writes ``AccumBounds(0, 1)`` for
+        ``frac(oo)``, a set, not a value, and ``nan`` for ``frac(zoo)``,
+        an evaluation result only)."""
+        a, za = t.atoms, z.atoms
+        fl = lambda v: z3.ToReal(z3.ToInt(v))  # noqa: E731
+        self._add(z3.Implies(z.nan, t.nan))
+        if f is frac:
+            self._add(z3.Implies(z.fin, z3.And(t.fin, t.re == z.re - fl(z.re), t.im == z.im - fl(z.im))),
+                      z3.Implies(z.fin, a["algebraic"] == za["algebraic"]),
+                      z3.Implies(z.real(), a["rational"] == za["rational"]))
+            return
+        if f is floor:
+            ki, re, im = z3.ToInt(z.re), fl(z.re), fl(z.im)
+        else:
+            ki, re, im = -z3.ToInt(-z.re), -fl(-z.re), -fl(-z.im)
+        self._add(z3.Implies(z.pinf, t.pinf), z3.Implies(z.ninf, t.ninf), z3.Implies(z.cinf, t.cinf),
+                  z3.Implies(z.fin, z3.And(t.fin, t.re == re, t.im == im, a["algebraic"])),
+                  # a real Gaussian integer is the integer k
+                  z3.Implies(z3.And(z.fin, im == 0), z3.And(a["integer"], t.k == ki)))
 
     def _fresh_real(self, name):
         return z3.Real(f"{name}{self._count()}", self.ctx)
