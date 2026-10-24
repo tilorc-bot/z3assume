@@ -1729,7 +1729,11 @@ class Encoder:
           of ``x``.  For a real ``x`` outside that range (``|x| > 1`` for
           ``asin``, ``acos``, ``atanh``; ``x < 1`` for ``acosh``; ``|x| <
           1`` for ``acoth``) ``w`` is not real, since ``f(w) = x`` and
-          ``f`` maps the reals into its range.
+          ``f`` maps the reals into its range.  For a finite non-real
+          ``x`` ``w`` is not real either: each forward function ``f``
+          (``sin``, ``cos``, ``tan``, ``cot`` and their hyperbolic versions)
+          maps the reals into the reals and ``zoo`` (``tan``, ``cot``,
+          ``coth`` have real poles).
         - ``asin``, ``acos``, ``asinh``, ``acosh`` of a finite ``x`` are
           finite: the logarithm's argument is never 0 (``(I*x + s)*(-I*x +
           s) = s**2 + x**2 = 1`` for ``s**2 = 1 - x**2``, likewise for the
@@ -1786,6 +1790,9 @@ class Encoder:
         self._add(z3.Implies(z3.And(real, inside), z3.And(treal, facts)))
         if outside is not None:
             self._add(z3.Implies(z3.And(real, outside), z3.Not(treal)))
+        # off the real axis w is not real: f(w) = x, and f maps the reals
+        # into the reals and zoo
+        self._add(z3.Implies(z3.And(x.fin, x.im != 0), z3.Not(treal)))
 
     def _q(self, f: Fraction):
         return z3.Q(f.numerator, f.denominator, self.ctx) if f.denominator != 1 else z3.RealVal(f.numerator, self.ctx)
