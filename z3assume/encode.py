@@ -27,6 +27,8 @@ from sympy.functions.elementary.integers import ceiling, floor, frac
 from sympy.functions.elementary.hyperbolic import (acosh, acoth, asinh, atanh, cosh, coth, csch, sech, sinh,
                                                    tanh)
 from sympy.functions.elementary.trigonometric import acos, acot, asin, atan, cos, cot, csc, sec, sin, tan
+from sympy.functions.combinatorial.factorials import factorial
+from sympy.functions.special.gamma_functions import gamma
 from sympy.logic.boolalg import (And, BooleanFalse, BooleanTrue, Equivalent, ITE, Implies, Not, Or,
                                  Xor)
 from sympy.assumptions.assume import AppliedPredicate
@@ -510,6 +512,10 @@ class Encoder:
             self._inverse(t, type(e), self.term(e.args[0]))
         elif type(e) in (floor, ceiling, frac) and len(e.args) == 1:   # not a user subclass
             self._round(t, type(e), self.term(e.args[0]))
+        elif type(e) is gamma and len(e.args) == 1:                    # not a user subclass
+            self._gamma(t, self.term(e.args[0]))
+        elif type(e) is factorial and len(e.args) == 1:
+            self._factorial(t, self.term(e.args[0]))
         else:
             self._opaque(t, e)
 
@@ -1044,6 +1050,86 @@ class Encoder:
                   z3.Implies(z.fin, z3.And(t.fin, t.re == re, t.im == im, a["algebraic"])),
                   # a real Gaussian integer is the integer k
                   z3.Implies(z3.And(z.fin, im == 0), z3.And(a["integer"], t.k == ki)))
+
+    def _factorial(self, t: Term, z: Term):
+        """``factorial(z) = gamma(z + 1)`` (``_gamma``, decision 9), the
+        sum unevaluated.  A finite ``z`` is an integer iff ``z + 1`` is
+        (stated here: the sum's axioms give one direction only, and z3 did
+        not find the other through ``IsInt`` within the rlimit)."""
+        w = self.term(Add(z.expr, S.One, evaluate=False))
+        self._add(z3.Implies(z.fin, w.atoms["integer"] == z.atoms["integer"]))
+        self._gamma(t, w)
+
+    def _gamma(self, t: Term, w: Term):
+        """``gamma(w)`` (docs/design.md "Terms", issue #21); ``factorial(z)``
+        is ``gamma(z + 1)`` with ``w`` the term of ``z + 1``.
+
+        ``factorial``: SymPy defines it on the nonnegative integers, with
+        ``n! = gamma(n + 1)`` there and "factorial of a negative integer is
+        complex infinity" (its docstring), which is ``gamma(n + 1)`` at a
+        pole (below); off the integers its derivative, ``evalf`` and
+        ``rewrite(gamma)`` are those of ``gamma(z + 1)``, and satassume
+        states the same convention (templates/integer_funcs.py:
+        ``factorial(n) == zoo`` for a negative integer ``n``,
+        ``factorial(oo) == oo``, ``factorial(x) == gamma(x + 1)`` off the
+        integers).  Decision 9.
+
+        The facts, each a theorem about Euler's gamma function (Whittaker
+        and Watson, ch. 12):
+
+        - Poles: ``gamma`` is meromorphic on C with simple poles exactly at
+          the nonpositive integers (``gamma(w) = gamma(w + n + 1)/(w*(w +
+          1)*...*(w + n))``, the numerator finite and nonzero at ``w = -n``).
+          At a pole ``|gamma(w')| -> oo`` as ``w' -> w`` from every
+          direction, so the value is the point at infinity of the Riemann
+          sphere, ``zoo``, as ``1/0 = zoo``; it is SymPy's value and
+          satassume's convention (templates/gamma_functions.py:
+          ``gamma(-n) == zoo``; the special-values table has no row).
+          Decision 9.
+        - No zeros: ``1/gamma`` is entire (Weierstrass product), so at
+          every other finite ``w`` the value is a finite nonzero number.
+        - The positive reals: ``gamma(x) = integral of s**(x - 1)*e**-s
+          over (0, oo)``, an integral of a positive function, so real and
+          positive.
+        - The negative non-integers: ``gamma(x) = gamma(x + n)/(x*(x +
+          1)*...*(x + n - 1))`` with ``n = -floor(x)``, so ``x + n`` lies in
+          ``(0, 1)`` and ``gamma(x + n) > 0``, and of the ``n`` factors of
+          the denominator exactly ``n`` are negative: the sign is
+          ``(-1)**n = (-1)**floor(x)``.  With a fresh integer ``h``:
+          ``x`` in ``(2*h, 2*h + 1)`` and the value positive, or ``x`` in
+          ``(2*h - 1, 2*h)`` and the value negative (``h = floor(x)/2`` or
+          ``(floor(x) + 1)/2``; either interval fixes the parity of
+          ``floor(x)``).
+        - The positive integers: ``gamma(n) = (n - 1)!`` (``gamma(1) = 1``,
+          ``gamma(w + 1) = w*gamma(w)``), so ``1, 1, 2`` at ``n = 1, 2, 3``,
+          and for ``n >= 4`` a multiple of ``3! = 6``: even and ``>= 6``
+          (so composite).
+        - Infinities: ``gamma(oo) = oo``, the limit along the real axis
+          (``gamma`` is log-convex on ``(0, oo)`` with ``gamma(1) =
+          gamma(2)``, so increasing on ``[2, oo)``, and ``gamma(x) >=
+          (floor(x) - 1)!`` grows without bound), SymPy's value and
+          satassume's convention (``gamma(oo) == oo``).  ``gamma(-oo)``
+          (no limit: poles accumulate) and ``gamma`` of the other kind are
+          free.  ``nan`` gives ``nan`` (special-values N1).
+
+        Not encoded: ``gamma(conjugate(w)) = conjugate(gamma(w))``, values
+        and enclosures at other points (``gamma(1/2) = sqrt(pi)``), and
+        number theory beyond the integers (whether ``gamma`` is rational or
+        algebraic at a rational is open but at a few points)."""
+        a, za = t.atoms, w.atoms
+        one = z3.IntVal(1, self.ctx)
+        pole = z3.And(za["integer"], w.k <= 0)
+        self._add(z3.Implies(w.nan, t.nan), z3.Implies(w.pinf, t.pinf),
+                  z3.Implies(z3.And(w.fin, pole), t.cinf),
+                  z3.Implies(z3.And(w.fin, z3.Not(pole)), z3.And(t.fin, z3.Or(t.re != 0, t.im != 0))),
+                  z3.Implies(z3.And(w.real(), w.re > 0), z3.And(t.im == 0, t.re > 0)))
+        h = z3.ToReal(z3.Int(f"gh{self._count()}", self.ctx))
+        self._add(z3.Implies(z3.And(w.real(), z3.Not(za["integer"]), w.re < 0), z3.And(t.im == 0, z3.Or(
+            z3.And(2 * h < w.re, w.re < 2 * h + 1, t.re > 0),
+            z3.And(2 * h - 1 < w.re, w.re < 2 * h, t.re < 0)))))
+        self._int_value(t, z3.And(za["integer"], w.k >= 1, w.k <= 2), one)
+        self._int_value(t, z3.And(za["integer"], w.k == 3), z3.IntVal(2, self.ctx))
+        self._add(z3.Implies(z3.And(za["integer"], w.k >= 4), z3.And(a["integer"], t.r == 0, t.k >= 6)))
 
     def _fresh_real(self, name):
         return z3.Real(f"{name}{self._count()}", self.ctx)
