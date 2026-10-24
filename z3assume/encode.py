@@ -155,6 +155,19 @@ class _Ptrs:
         self.atoms = {p: x.as_ast() for p, x in t.atoms.items()}
 
 
+def _ast(x):
+    """The raw pointer of an AstRef, or ``x`` itself if it is one."""
+    return x.as_ast() if isinstance(x, z3.AstRef) else x
+
+
+def _reflected(a: type, b: type) -> bool:
+    """Whether the wrapper's comparison ``x < y`` (``==``, ...) of an AstRef
+    of class ``a`` with one of class ``b`` runs as ``y > x``: Python tries
+    the reflected comparison first when ``b`` is a proper subclass of
+    ``a``, as a numeral's RatNumRef is of ArithRef."""
+    return a is not b and issubclass(b, a)
+
+
 def _lit(atoms, pred, pos):
     a = atoms[pred]
     return a if pos else z3.Not(a)
@@ -269,6 +282,10 @@ class _Raw:
     def ge(self, a, b):
         return self._new(_C.Z3_mk_ge(self.ref, a, b))
 
+    def neg(self, a):
+        """``-a``."""
+        return self._new(_C.Z3_mk_unary_minus(self.ref, a))
+
     def add(self, *args):
         return self._new(_C.Z3_mk_add(self.ref, *self._array(args)))
 
@@ -285,6 +302,20 @@ class _Raw:
         """``PbEq`` with all coefficients 1."""
         n, arr = self._array(args)
         return self._new(_C.Z3_mk_pbeq(self.ref, n, arr, (ctypes.c_int * n)(*[1] * n), k))
+
+
+def _scoped(method):
+    """The raw nodes the method makes (``_Raw.tmp``) are dropped when it
+    returns, or raises, as the wrapper's temporaries die with its frame."""
+    def scoped(self, *args):
+        R = self._raw
+        mark = R.mark()
+        try:
+            return method(self, *args)
+        finally:
+            R.release(mark)
+    scoped.__name__, scoped.__doc__ = method.__name__, method.__doc__
+    return scoped
 
 
 class Encoder:
@@ -329,6 +360,7 @@ class Encoder:
     def _add_raw(self, a):
         self.axioms.append(self._raw.hold(a))
 
+    @_scoped
     def _shape(self, t: Term):
         """The kind is one of five; the basis Booleans are the numeric
         definitions unless the value is nan, the rules always; nan is no
@@ -339,7 +371,7 @@ class Encoder:
         stands for: the raw calls make its nodes in its order (Python's:
         the arguments of a call left to right, then the call; a node made
         again is the same node)."""
-        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        R, add = self._raw, self._add_raw
         T = t.p
         fin, pinf, ninf, cinf, nan, re, im, k, h, r, a = (T.fin, T.pinf, T.ninf, T.cinf, T.nan, T.re, T.im,
                                                           T.k, T.h, T.r, T.atoms)
@@ -388,7 +420,6 @@ class Encoder:
         lit = lambda p, s: a[p] if s else nots[p]  # noqa: E731
         for prem, concl in RULES:
             add(R.implies(R.and_(*[lit(p, s) for p, s in prem]), R.or_(*[lit(p, s) for p, s in concl])))
-        R.release(mark)
 
     def _non_integer(self, t: Term, noint):
         """A finite real non-integer (``noint``, the raw
@@ -448,14 +479,16 @@ class Encoder:
             start = len(self.axioms)
             self._node(t, Integer(1), None)
             one = self.axioms[start:]
-            del self.axioms[start:]
             # Implies(Not(b.nan), And(one)), raw as the axioms are; then
             # only it holds them
             R, mark = self._raw, self._raw.mark()
-            f = R.implies(R.not_(b.p.nan), R.and_(*one))
-            R.truncate(start)
-            self._add_raw(f)
-            R.release(mark)
+            try:
+                f = R.implies(R.not_(b.p.nan), R.and_(*one))
+                del self.axioms[start:]
+                R.truncate(start)
+                self._add_raw(f)
+            finally:
+                R.release(mark)
             return
         if isinstance(e, Integer):
             n = int(e)
@@ -570,8 +603,9 @@ class Encoder:
     # (as _shape's: the wrapper code in the comments, its nodes in its
     # order); x.p are the raw variables of the term x.
 
+    @_scoped
     def _sum(self, t: Term, args):
-        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        R, add = self._raw, self._add_raw
         T, xs = t.p, [x.p for x in args]
         allfin = R.and_(*[x.fin for x in xs])                     # And([x.fin for x in args])
         # Implies(allfin, And(t.fin, t.re == Sum([x.re ...]), t.im == Sum([x.im ...])))
@@ -592,7 +626,6 @@ class Encoder:
             rest = [y.fin for j, y in enumerate(xs) if j != i]
             add(R.implies(R.and_(x.cinf, *rest), T.cinf))         # Implies(And(x.cinf, *rest), t.cinf)
         self._closure(T, xs, allfin, lambda y: R.true())          # BoolVal(True)
-        R.release(mark)
 
     def _closure(self, T, xs, allfin, cancel):
         """Field closure of rationals and algebraic numbers among finite
@@ -610,8 +643,9 @@ class Encoder:
                     rest = [R.and_(y.atoms[p], cancel(y)) for j, y in enumerate(xs) if j != i]
                     add(R.implies(R.and_(allfin, T.atoms[p], *rest), x.atoms[p]))
 
+    @_scoped
     def _product(self, t: Term, args):
-        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        R, add = self._raw, self._add_raw
         T, xs = t.p, [x.p for x in args]
         allfin = R.and_(*[x.fin for x in xs])
         re, im = args[0].re, args[0].im
@@ -633,7 +667,6 @@ class Encoder:
         if len(var) == 1 and abs(c.p) == 1 and c.q > 1:
             # Implies(And(var[0].fin, t.atoms["integer"]), var[0].atoms["integer"])
             add(R.implies(R.and_(var[0].p.fin, T.atoms["integer"]), var[0].p.atoms["integer"]))
-        R.release(mark)
 
     def _fresh_mul(self, a, b, c, d):
         """(a + b*I)*(c + d*I) as two fresh reals."""
@@ -718,6 +751,7 @@ class Encoder:
 
     # -- powers with an exponent that is not an integer literal -----------
 
+    @_scoped
     def _pow(self, t: Term, e):
         """``b**x`` for an exponent ``x`` that is not an integer literal:
         SymPy's principal value ``exp(x*log(b))`` for finite ``b != 0`` and
@@ -790,85 +824,119 @@ class Encoder:
         ``b**(-1/2)``, ``b**(-1/3)`` (``b > 0``) the ``s > 0`` with ``s**q * b
         = 1``."""
         b, x = self.term(e.base), self.term(e.exp)
-        ctx = self.ctx
-        a, ba, xa = t.atoms, b.atoms, x.atoms
-        one, zero = z3.IntVal(1, ctx), z3.IntVal(0, ctx)
-        bzero = z3.And(b.fin, b.re == 0, b.im == 0)
-        bnz = z3.And(b.fin, z3.Or(b.re != 0, b.im != 0))
-        bone = z3.And(b.fin, b.re == 1, b.im == 0)
-        xzero = z3.And(x.fin, x.re == 0, x.im == 0)
-        xone = z3.And(x.fin, x.re == 1, x.im == 0)
-        xreal, binf = x.real(), b.infinite()
+        # raw, as _shape (the wrapper code in the comments; numerals made
+        # where the wrapper's coercion makes them); b.p, x.p, t.p are the
+        # raw variables
+        R, add = self._raw, self._add_raw
+        T, B, X = t.p, b.p, x.p
+        a, ba, xa = T.atoms, B.atoms, X.atoms
+        eq, ne, gt, lt, num = R.eq, R.ne, R.gt, R.lt, R.real
+        one, zero = R.int(1), R.int(0)                                      # IntVal(1), IntVal(0)
+        bzero = R.and_(B.fin, eq(B.re, num(0)), eq(B.im, num(0)))           # And(b.fin, b.re == 0, b.im == 0)
+        # And(b.fin, Or(b.re != 0, b.im != 0))
+        bnz = R.and_(B.fin, R.or_(ne(B.re, num(0)), ne(B.im, num(0))))
+        bone = R.and_(B.fin, eq(B.re, num(1)), eq(B.im, num(0)))
+        xzero = R.and_(X.fin, eq(X.re, num(0)), eq(X.im, num(0)))
+        xone = R.and_(X.fin, eq(X.re, num(1)), eq(X.im, num(0)))
+        # x.real(), b.infinite()
+        xreal, binf = R.and_(X.fin, eq(X.im, num(0))), R.not_(R.or_(B.fin, B.nan))
         # N1, P2, b**1 = b
-        self._add(z3.Implies(x.nan, t.nan), z3.Implies(z3.And(b.nan, z3.Not(xzero)), t.nan))
-        self._int_value(t, z3.And(xzero, z3.Not(b.nan)), one)
-        self._add(z3.Implies(xone, z3.And(t.fin == b.fin, t.pinf == b.pinf, t.ninf == b.ninf, t.cinf == b.cinf,
-                                          t.nan == b.nan, z3.Implies(b.fin, z3.And(t.re == b.re, t.im == b.im)))))
+        add(R.implies(X.nan, T.nan))                                        # Implies(x.nan, t.nan)
+        add(R.implies(R.and_(B.nan, R.not_(xzero)), T.nan))                 # Implies(And(b.nan, Not(xzero)), t.nan)
+        self._int_value(t, R.and_(xzero, R.not_(B.nan)), one)               # And(xzero, Not(b.nan))
+        # Implies(xone, And(t.fin == b.fin, t.pinf == b.pinf, t.ninf == b.ninf, t.cinf == b.cinf,
+        #                   t.nan == b.nan, Implies(b.fin, And(t.re == b.re, t.im == b.im))))
+        add(R.implies(xone, R.and_(eq(T.fin, B.fin), eq(T.pinf, B.pinf), eq(T.ninf, B.ninf), eq(T.cinf, B.cinf),
+                                   eq(T.nan, B.nan), R.implies(B.fin, R.and_(eq(T.re, B.re), eq(T.im, B.im))))))
         self._same(t, b, xone)
         # 0**x for real x != 0 (P1)
-        self._int_value(t, z3.And(bzero, xreal, x.re > 0), zero)
-        self._add(z3.Implies(z3.And(bzero, xreal, x.re < 0), t.cinf))
+        self._int_value(t, R.and_(bzero, xreal, gt(X.re, num(0))), zero)    # And(bzero, xreal, x.re > 0)
+        add(R.implies(R.and_(bzero, xreal, lt(X.re, num(0))), T.cinf))      # ... x.re < 0), t.cinf)
         # P4, P5: finite b, x = +-oo
         nb = self._fresh_real("pownorm")
-        self._add(z3.Implies(z3.And(b.fin, z3.Or(x.pinf, x.ninf)), nb == b.re * b.re + b.im * b.im))
-        bpos = z3.And(b.fin, b.im == 0, b.re > 0)
-        self._int_value(t, z3.And(b.fin, z3.Or(z3.And(x.pinf, nb < 1), z3.And(x.ninf, nb > 1))), zero)
-        self._add(z3.Implies(z3.And(b.fin, z3.Or(z3.And(x.pinf, nb > 1), z3.And(x.ninf, nb < 1))),
-                             z3.If(bpos, t.pinf, t.cinf)),
-                  z3.Implies(z3.And(b.fin, nb == 1, z3.Or(x.pinf, x.ninf)), t.nan))
+        NB = nb.as_ast()
+        # Implies(And(b.fin, Or(x.pinf, x.ninf)), nb == b.re * b.re + b.im * b.im)
+        add(R.implies(R.and_(B.fin, R.or_(X.pinf, X.ninf)), eq(NB, R.add(R.mul(B.re, B.re), R.mul(B.im, B.im)))))
+        bpos = R.and_(B.fin, eq(B.im, num(0)), gt(B.re, num(0)))            # And(b.fin, b.im == 0, b.re > 0)
+        # And(b.fin, Or(And(x.pinf, nb < 1), And(x.ninf, nb > 1)))
+        self._int_value(t, R.and_(B.fin, R.or_(R.and_(X.pinf, lt(NB, num(1))), R.and_(X.ninf, gt(NB, num(1))))), zero)
+        # Implies(And(b.fin, Or(And(x.pinf, nb > 1), And(x.ninf, nb < 1))), If(bpos, t.pinf, t.cinf))
+        add(R.implies(R.and_(B.fin, R.or_(R.and_(X.pinf, gt(NB, num(1))), R.and_(X.ninf, lt(NB, num(1))))),
+                      R.ite(bpos, T.pinf, T.cinf)))
+        # Implies(And(b.fin, nb == 1, Or(x.pinf, x.ninf)), t.nan)
+        add(R.implies(R.and_(B.fin, eq(NB, num(1)), R.or_(X.pinf, X.ninf)), T.nan))
         # P6, P3: infinite b
-        self._int_value(t, z3.And(binf, z3.Or(x.ninf, z3.And(xreal, x.re < 0))), zero)
-        xpos = z3.And(xreal, x.re > 0)
-        self._add(z3.Implies(z3.And(binf, x.pinf), z3.If(b.pinf, t.pinf, t.cinf)),
-                  z3.Implies(z3.And(b.pinf, xpos), t.pinf),
-                  z3.Implies(z3.And(b.cinf, xpos), t.infinite()),
-                  z3.Implies(z3.And(b.ninf, xpos),
-                             z3.If(xa["integer"], z3.If(x.r == 0, t.pinf, t.ninf), t.cinf)))
+        # And(binf, Or(x.ninf, And(xreal, x.re < 0)))
+        self._int_value(t, R.and_(binf, R.or_(X.ninf, R.and_(xreal, lt(X.re, num(0))))), zero)
+        xpos = R.and_(xreal, gt(X.re, num(0)))                              # And(xreal, x.re > 0)
+        add(R.implies(R.and_(binf, X.pinf), R.ite(B.pinf, T.pinf, T.cinf)))  # Implies(And(binf, x.pinf), If(...))
+        add(R.implies(R.and_(B.pinf, xpos), T.pinf))
+        add(R.implies(R.and_(B.cinf, xpos), R.not_(R.or_(T.fin, T.nan))))   # t.infinite()
+        # Implies(And(b.ninf, xpos), If(xa["integer"], If(x.r == 0, t.pinf, t.ninf), t.cinf))
+        add(R.implies(R.and_(B.ninf, xpos), R.ite(xa["integer"], R.ite(eq(X.r, R.int(0)), T.pinf, T.ninf), T.cinf)))
         # finite b != 0, finite x: exp(x*log(b))
-        cond = z3.And(bnz, x.fin)
+        cond = R.and_(bnz, X.fin)                                           # And(bnz, x.fin)
         if e.base is not S.Zero:
             self._principal(t, e.base, e.exp, x, cond)
         # integer x
-        xint = z3.And(x.fin, xa["integer"])
-        breal = z3.And(b.fin, b.im == 0, b.re != 0)
-        bimag = z3.And(b.fin, b.re == 0, b.im != 0)
-        bint = z3.And(b.fin, ba["integer"])
-        big = z3.Or(b.k >= 2, b.k <= -2)
-        self._add(z3.Implies(z3.And(xint, breal),
-                             z3.And(t.fin, t.im == 0, z3.Implies(b.re > 0, t.re > 0),
-                                    z3.Implies(b.re < 0, z3.If(x.r == 0, t.re > 0, t.re < 0)))),
-                  z3.Implies(z3.And(xint, bimag),
-                             z3.And(t.fin, z3.If(x.r == 0, z3.And(t.im == 0, t.re != 0),
-                                                 z3.And(t.re == 0, t.im != 0)))),
-                  z3.Implies(z3.And(bint, xint, x.k >= 0), a["integer"]),
-                  z3.Implies(z3.And(bint, ba["even"], xint, x.k >= 1), a["even"]),
-                  z3.Implies(z3.And(bint, z3.Not(ba["even"]), xint, x.k >= 0),
-                             z3.And(a["integer"], z3.Not(a["even"]))),
-                  z3.Implies(z3.And(bint, big, xint, x.k >= 2), z3.Not(a["prime"])),
-                  z3.Implies(z3.And(bint, big, xint, x.k <= -1),
-                             z3.And(t.fin, t.im == 0, t.re > -1, t.re < 1, t.re != 0)),
-                  z3.Implies(z3.And(bnz, ba["rational"], xint), a["rational"]))
+        xint = R.and_(X.fin, xa["integer"])
+        breal = R.and_(B.fin, eq(B.im, num(0)), ne(B.re, num(0)))           # And(b.fin, b.im == 0, b.re != 0)
+        bimag = R.and_(B.fin, eq(B.re, num(0)), ne(B.im, num(0)))           # And(b.fin, b.re == 0, b.im != 0)
+        bint = R.and_(B.fin, ba["integer"])
+        big = R.or_(R.ge(B.k, R.int(2)), R.le(B.k, R.int(-2)))              # Or(b.k >= 2, b.k <= -2)
+        # Implies(And(xint, breal), And(t.fin, t.im == 0, Implies(b.re > 0, t.re > 0),
+        #                               Implies(b.re < 0, If(x.r == 0, t.re > 0, t.re < 0))))
+        add(R.implies(R.and_(xint, breal),
+                      R.and_(T.fin, eq(T.im, num(0)), R.implies(gt(B.re, num(0)), gt(T.re, num(0))),
+                             R.implies(lt(B.re, num(0)),
+                                       R.ite(eq(X.r, R.int(0)), gt(T.re, num(0)), lt(T.re, num(0)))))))
+        # Implies(And(xint, bimag),
+        #         And(t.fin, If(x.r == 0, And(t.im == 0, t.re != 0), And(t.re == 0, t.im != 0))))
+        add(R.implies(R.and_(xint, bimag),
+                      R.and_(T.fin, R.ite(eq(X.r, R.int(0)), R.and_(eq(T.im, num(0)), ne(T.re, num(0))),
+                                          R.and_(eq(T.re, num(0)), ne(T.im, num(0)))))))
+        add(R.implies(R.and_(bint, xint, R.ge(X.k, R.int(0))), a["integer"]))                   # x.k >= 0
+        add(R.implies(R.and_(bint, ba["even"], xint, R.ge(X.k, R.int(1))), a["even"]))         # x.k >= 1
+        # Implies(And(bint, Not(ba["even"]), xint, x.k >= 0), And(a["integer"], Not(a["even"])))
+        add(R.implies(R.and_(bint, R.not_(ba["even"]), xint, R.ge(X.k, R.int(0))),
+                      R.and_(a["integer"], R.not_(a["even"]))))
+        add(R.implies(R.and_(bint, big, xint, R.ge(X.k, R.int(2))), R.not_(a["prime"])))       # x.k >= 2
+        # Implies(And(bint, big, xint, x.k <= -1), And(t.fin, t.im == 0, t.re > -1, t.re < 1, t.re != 0))
+        add(R.implies(R.and_(bint, big, xint, R.le(X.k, R.int(-1))),
+                      R.and_(T.fin, eq(T.im, num(0)), gt(T.re, num(-1)), lt(T.re, num(1)), ne(T.re, num(0)))))
+        add(R.implies(R.and_(bnz, ba["rational"], xint), a["rational"]))
         # algebraic numbers: rational x, Gelfond-Schneider
-        xrat = z3.And(x.fin, xa["rational"])
-        self._add(z3.Implies(z3.And(bnz, ba["algebraic"], xrat), a["algebraic"]),
-                  z3.Implies(z3.And(b.fin, xrat, z3.Not(xzero), t.fin, a["algebraic"]), ba["algebraic"]),
-                  z3.Implies(z3.And(bnz, ba["algebraic"], z3.Not(bone), x.fin, xa["algebraic"],
-                                    z3.Not(xa["rational"])), z3.Not(a["algebraic"])))
+        xrat = R.and_(X.fin, xa["rational"])
+        add(R.implies(R.and_(bnz, ba["algebraic"], xrat), a["algebraic"]))
+        # Implies(And(b.fin, xrat, Not(xzero), t.fin, a["algebraic"]), ba["algebraic"])
+        add(R.implies(R.and_(B.fin, xrat, R.not_(xzero), T.fin, a["algebraic"]), ba["algebraic"]))
+        # Implies(And(bnz, ba["algebraic"], Not(bone), x.fin, xa["algebraic"], Not(xa["rational"])),
+        #         Not(a["algebraic"]))
+        add(R.implies(R.and_(bnz, ba["algebraic"], R.not_(bone), X.fin, xa["algebraic"], R.not_(xa["rational"])),
+                      R.not_(a["algebraic"])))
         if isinstance(e.exp, Rational):
             self._rational_power(t, b, e.base, Fraction(int(e.exp.p), int(e.exp.q)))
 
+    @_scoped
     def _principal(self, t: Term, base, xe, x: Term, cond):
-        """Under ``cond`` (finite ``b != 0``, finite ``x``) ``t`` is the
-        principal value ``exp(x*log(b))`` (``_pow``)."""
+        """Under ``cond`` (finite ``b != 0``, finite ``x``; raw) ``t`` is the
+        principal value ``exp(x*log(b))`` (``_pow``).  Raw, as ``_pow``."""
+        R, T, num = self._raw, t.p, self._raw.real
         lit = _polar_literal(base)
         if lit is None:
             val = exp(Mul(xe, log(base, evaluate=False), evaluate=False), evaluate=False)
             # a real negative b: the direction is that of exp(I*pi*x)
             b = self.term(base)
             d = self.term(exp(Mul(S.ImaginaryUnit, S.Pi, xe, evaluate=False), evaluate=False))
-            self._add(z3.Implies(z3.And(cond, b.real(), b.re < 0, x.real()),
-                                 z3.And((t.re > 0) == (d.re > 0), (t.re < 0) == (d.re < 0),
-                                        (t.im > 0) == (d.im > 0), (t.im < 0) == (d.im < 0))))
+            B, D, X = b.p, d.p, x.p
+            sign = lambda f, u, v: R.eq(f(u, num(0)), f(v, num(0)))     # noqa: E731 (f(u, 0) == f(v, 0))
+            # Implies(And(cond, b.real(), b.re < 0, x.real()),
+            #         And((t.re > 0) == (d.re > 0), (t.re < 0) == (d.re < 0),
+            #             (t.im > 0) == (d.im > 0), (t.im < 0) == (d.im < 0)))
+            self._add_raw(R.implies(R.and_(cond, R.and_(B.fin, R.eq(B.im, num(0))), R.lt(B.re, num(0)),
+                                           R.and_(X.fin, R.eq(X.im, num(0)))),
+                                    R.and_(sign(R.gt, T.re, D.re), sign(R.lt, T.re, D.re),
+                                           sign(R.gt, T.im, D.im), sign(R.lt, T.im, D.im))))
         else:
             r, c0 = lit
             factors = []
@@ -883,7 +951,7 @@ class Encoder:
                     rest = [g for g in xe.args if g not in imag]
                     if imag and rest:
                         groups = [g[0] if len(g) == 1 else Add(*g, evaluate=False) for g in (rest, imag)]
-                        cond = z3.And(cond, *[self.term(g).fin for g in xe.args])
+                        cond = R.and_(cond, *[self.term(g).p.fin for g in xe.args])
                 for g in groups:
                     if isinstance(g, Rational):
                         c = Rational(c0.numerator, c0.denominator) * g
@@ -893,11 +961,12 @@ class Encoder:
                         c = Mul(Rational(c0.numerator, c0.denominator), g, evaluate=False)
                     factors.append(exp(Mul(S.ImaginaryUnit, S.Pi, c, evaluate=False), evaluate=False))
             if not factors:
-                self._int_value(t, cond, z3.IntVal(1, self.ctx))
+                self._int_value(t, cond, R.int(1))
                 return
             val = factors[0] if len(factors) == 1 else Mul(*factors, evaluate=False)
         v = self.term(val)
-        self._add(z3.Implies(cond, z3.And(t.fin, t.re == v.re, t.im == v.im)))
+        # Implies(cond, And(t.fin, t.re == v.re, t.im == v.im))
+        self._add_raw(R.implies(cond, R.and_(T.fin, R.eq(T.re, v.p.re), R.eq(T.im, v.p.im))))
         self._same(t, v, cond)
 
     def _rational_power(self, t: Term, b: Term, base, f: Fraction):
@@ -924,17 +993,33 @@ class Encoder:
             else:
                 self._add(z3.Not(t.atoms["rational"]))
 
+    # _same and _int_value are raw (as _shape); ``cond`` and ``k`` are
+    # AstRefs, which the caller holds, or raw pointers (_ast)
+
+    @_scoped
     def _same(self, t: Term, z: Term, cond):
         """Under ``cond`` the value of ``t`` is that of ``z``: the
         predicates without a numeric definition agree."""
-        a, za = t.atoms, z.atoms
-        self._add(z3.Implies(cond, z3.And([a[p] == za[p] for p in
-                                           ("integer", "rational", "algebraic", "prime", "composite", "even")])),
-                  z3.Implies(z3.And(cond, za["integer"]), z3.And(t.k == z.k, t.r == z.r)))
+        R, cond = self._raw, _ast(cond)
+        T, Z = t.p, z.p
+        a, za = T.atoms, Z.atoms
+        # Implies(cond, And([a[p] == za[p] for p in (...)]))
+        self._add_raw(R.implies(cond, R.and_(*[R.eq(a[p], za[p]) for p in
+                                              ("integer", "rational", "algebraic", "prime", "composite", "even")])))
+        # Implies(And(cond, za["integer"]), And(t.k == z.k, t.r == z.r))
+        self._add_raw(R.implies(R.and_(cond, za["integer"]), R.and_(R.eq(T.k, Z.k), R.eq(T.r, Z.r))))
 
+    @_scoped
     def _int_value(self, t: Term, cond, k):
         """Under ``cond`` the value of ``t`` is the integer ``k``."""
-        self._add(z3.Implies(cond, z3.And(t.fin, t.im == 0, t.re == z3.ToReal(k), t.atoms["integer"], t.k == k)))
+        R, cond, k, T = self._raw, _ast(cond), _ast(k), t.p
+        # Implies(cond, And(t.fin, t.im == 0, t.re == ToReal(k), t.atoms["integer"], t.k == k)),
+        # where t.k == k is k == t.k for a numeral k: its AstRef (IntNumRef)
+        # is a subclass of t.k's (ArithRef), so Python tries its reflected
+        # comparison first
+        numeral = _C.Z3_is_numeral_ast(R.ref, k)
+        self._add_raw(R.implies(cond, R.and_(T.fin, R.eq(T.im, R.real(0)), R.eq(T.re, R.to_real(k)),
+                                             T.atoms["integer"], R.eq(k, T.k) if numeral else R.eq(T.k, k))))
 
     def _complex_part(self, t: Term, f, z: Term):
         """``Abs``, ``re``, ``im``, ``conjugate``, ``sign`` of ``z``, exact on
@@ -1134,6 +1219,7 @@ class Encoder:
     def _fresh_real(self, name):
         return z3.Real(f"{name}{self._count()}", self.ctx)
 
+    @_scoped
     def _exp_pair(self, cond, u, v):
         """Under ``cond``, ``v = e**u`` for reals ``u``, ``v``.  The facts:
         ``e**u > 0``; the tangent at 0, ``e**u >= 1 + u`` (convexity; it is
@@ -1143,13 +1229,31 @@ class Encoder:
         ``v = v'``: finitely many ground instances, quadratic in the number
         of ``exp``/``log`` terms of the query.  ``log(1) = 0``,
         ``log(exp(x)) = x`` for real ``x`` and the sign of ``log(x)`` against
-        ``x - 1`` follow from these."""
-        one = z3.RealVal(1, self.ctx)
-        self._add(z3.Implies(cond, z3.And(v > 0, v >= one + u, (u < 0) == (v < one), (u == 0) == (v == one))))
+        ``x - 1`` follow from these.
+
+        Raw, as ``_pow``; ``cond``, ``u``, ``v`` are AstRefs, kept in
+        ``_pairs`` as the wrapper code kept them (their references count at
+        check time), and their classes decide the order of a comparison
+        (``_reflected``)."""
+        R, add, num = self._raw, self._add_raw, self._raw.real
+        C, U, V = cond.as_ast(), u.as_ast(), v.as_ast()
+        one = num(1)                                                        # RealVal(1)
+        r = _reflected(type(v), z3.RatNumRef)                               # v < one is one > v
+        # Implies(cond, And(v > 0, v >= one + u, (u < 0) == (v < one), (u == 0) == (v == one)))
+        add(R.implies(C, R.and_(R.gt(V, num(0)), R.ge(V, R.add(one, U)),
+                                R.eq(R.lt(U, num(0)), R.gt(one, V) if r else R.lt(V, one)),
+                                R.eq(R.eq(U, num(0)), R.eq(one, V) if r else R.eq(V, one)))))
+        lt = lambda a, b, r: R.gt(b, a) if r else R.lt(a, b)               # noqa: E731 (a < b)
+        eq = lambda a, b, r: R.eq(b, a) if r else R.eq(a, b)               # noqa: E731 (a == b)
         for c2, u2, v2 in self._pairs:
-            self._add(z3.Implies(z3.And(cond, c2), z3.And((u < u2) == (v < v2), (u == u2) == (v == v2))))
+            ru, rv = _reflected(type(u), type(u2)), _reflected(type(v), type(v2))
+            U2, V2 = u2.as_ast(), v2.as_ast()
+            # Implies(And(cond, c2), And((u < u2) == (v < v2), (u == u2) == (v == v2)))
+            add(R.implies(R.and_(C, c2.as_ast()), R.and_(R.eq(lt(U, U2, ru), lt(V, V2, rv)),
+                                                         R.eq(eq(U, U2, ru), eq(V, V2, rv)))))
         self._pairs.append((cond, u, v))
 
+    @_scoped
     def _exp(self, t: Term, z: Term):
         """``exp(z)``, ``z = a + b*I``: ``e**a * (cos b + I*sin b)``.
 
@@ -1180,64 +1284,96 @@ class Encoder:
         Not encoded (z3 did not decide the even/odd case of the integer
         witness ``b = n*pi`` within the limits): "``exp(z)`` real iff
         ``b/pi`` is an integer" for ``b`` not of the form ``pi*c``."""
-        a, za = t.atoms, z.atoms
-        ctx = self.ctx
-        self._add(z3.Implies(z.nan, t.nan), z3.Implies(z.pinf, t.pinf),
-                  z3.Implies(z.cinf, z3.Or(t.cinf, t.nan, z3.And(t.fin, t.re == 0, t.im == 0))))
-        self._int_value(t, z.ninf, z3.IntVal(0, ctx))
-        zero = z3.And(z.fin, z.re == 0, z.im == 0)
-        self._int_value(t, zero, z3.IntVal(1, ctx))
+        R, add, num = self._raw, self._add_raw, self._raw.real
+        eq, ne, gt, lt, ge, le, neg = R.eq, R.ne, R.gt, R.lt, R.ge, R.le, R.neg
+        T, Z = t.p, z.p
+        a, za = T.atoms, Z.atoms
+        add(R.implies(Z.nan, T.nan))                                        # Implies(z.nan, t.nan)
+        add(R.implies(Z.pinf, T.pinf))
+        # Implies(z.cinf, Or(t.cinf, t.nan, And(t.fin, t.re == 0, t.im == 0)))
+        add(R.implies(Z.cinf, R.or_(T.cinf, T.nan, R.and_(T.fin, eq(T.re, num(0)), eq(T.im, num(0))))))
+        self._int_value(t, Z.ninf, R.int(0))
+        zero = R.and_(Z.fin, eq(Z.re, num(0)), eq(Z.im, num(0)))            # And(z.fin, z.re == 0, z.im == 0)
+        self._int_value(t, zero, R.int(1))
         m = self._fresh_real("expm")
-        self._add(z3.Implies(z.fin, z3.And(t.fin, t.re * t.re + t.im * t.im == m * m)),
-                  z3.Implies(z3.And(z.fin, z.im == 0), z3.And(t.re == m, t.im == 0)))
+        M = m.as_ast()
+        # Implies(z.fin, And(t.fin, t.re * t.re + t.im * t.im == m * m))
+        add(R.implies(Z.fin, R.and_(T.fin, eq(R.add(R.mul(T.re, T.re), R.mul(T.im, T.im)), R.mul(M, M)))))
+        # Implies(And(z.fin, z.im == 0), And(t.re == m, t.im == 0))
+        add(R.implies(R.and_(Z.fin, eq(Z.im, num(0))), R.and_(eq(T.re, M), eq(T.im, num(0)))))
         self._exp_pair(z.fin, z.re, m)
-        pi = self.term(S.Pi).re
-        b, re, im = z.im, t.re, t.im
-        self._add(z3.Implies(z.fin, z3.And(
-            z3.Implies(z3.And(b > 0, b < pi), im > 0),
-            z3.Implies(z3.And(b < 0, b > -pi), im < 0),
-            z3.Implies(z3.And(2 * b < pi, 2 * b > -pi), re > 0),
-            z3.Implies(z3.Or(2 * b == pi, 2 * b == -pi), re == 0),
-            z3.Implies(z3.Or(z3.And(2 * b > pi, b <= pi), z3.And(2 * b < -pi, b >= -pi)), re < 0),
-            z3.Implies(z3.Or(b == pi, b == -pi), z3.And(re == -m, im == 0)))))
+        pi = self.term(S.Pi).p.re
+        b, re, im = Z.im, T.re, T.im
+        b2 = lambda: R.mul(num(2), b)                                       # noqa: E731 (2 * b)
+        # Implies(z.fin, And(
+        #     Implies(And(b > 0, b < pi), im > 0),
+        #     Implies(And(b < 0, b > -pi), im < 0),
+        #     Implies(And(2 * b < pi, 2 * b > -pi), re > 0),
+        #     Implies(Or(2 * b == pi, 2 * b == -pi), re == 0),
+        #     Implies(Or(And(2 * b > pi, b <= pi), And(2 * b < -pi, b >= -pi)), re < 0),
+        #     Implies(Or(b == pi, b == -pi), And(re == -m, im == 0))))
+        add(R.implies(Z.fin, R.and_(
+            R.implies(R.and_(gt(b, num(0)), lt(b, pi)), gt(im, num(0))),
+            R.implies(R.and_(lt(b, num(0)), gt(b, neg(pi))), lt(im, num(0))),
+            R.implies(R.and_(lt(b2(), pi), gt(b2(), neg(pi))), gt(re, num(0))),
+            R.implies(R.or_(eq(b2(), pi), eq(b2(), neg(pi))), eq(re, num(0))),
+            R.implies(R.or_(R.and_(gt(b2(), pi), le(b, pi)), R.and_(lt(b2(), neg(pi)), ge(b, neg(pi)))),
+                      lt(re, num(0))),
+            R.implies(R.or_(eq(b, pi), eq(b, neg(pi))), R.and_(eq(re, neg(M)), eq(im, num(0)))))))
         w = z.expr
         if isinstance(w, Mul) and S.ImaginaryUnit in w.args and S.Pi in w.args:
             rest = list(w.args)
             rest.remove(S.ImaginaryUnit)
             rest.remove(S.Pi)
             c = self.term(Mul(*rest))
-            one = z3.IntVal(1, ctx)
-            self._int_value(t, z3.And(c.real(), c.atoms["integer"]), z3.If(c.r == 0, one, -one))
-            self._add(z3.Implies(z3.And(c.real(), z3.Not(c.atoms["integer"])), im != 0))
+            Ct = c.p
+            real = lambda: R.and_(Ct.fin, eq(Ct.im, num(0)))               # noqa: E731 (c.real())
+            one = R.int(1)                                                  # IntVal(1)
+            # And(c.real(), c.atoms["integer"]), If(c.r == 0, one, -one)
+            self._int_value(t, R.and_(real(), Ct.atoms["integer"]), R.ite(eq(Ct.r, R.int(0)), one, neg(one)))
+            # Implies(And(c.real(), Not(c.atoms["integer"])), im != 0)
+            add(R.implies(R.and_(real(), R.not_(Ct.atoms["integer"])), ne(im, num(0))))
             if isinstance(c.expr, Rational):
                 # period 2*pi*I: exp(I*pi*c) = exp(I*pi*c') with c' = c - 2*n
                 # in (-1, 1], and pi*c' in (-pi, pi] has the signs above
                 f = Fraction(int(c.expr.p), int(c.expr.q))
                 f -= 2 * math.ceil((f - 1) / 2)
-                self._add(im > 0 if 0 < f < 1 else im < 0 if -1 < f < 0 else im == 0,
-                          re > 0 if abs(f) < Fraction(1, 2) else re == 0 if abs(f) == Fraction(1, 2) else re < 0)
+                add(gt(im, num(0)) if 0 < f < 1 else lt(im, num(0)) if -1 < f < 0 else eq(im, num(0)))
+                add(gt(re, num(0)) if abs(f) < Fraction(1, 2) else eq(re, num(0)) if abs(f) == Fraction(1, 2)
+                    else lt(re, num(0)))
             else:
                 # cos(pi*c) = 0 iff c - 1/2 is an integer (the zeros of cos)
                 h = self.term(Add(c.expr, Rational(-1, 2), evaluate=False))
-                self._add(z3.Implies(c.real(), (re == 0) == h.atoms["integer"]))
+                # Implies(c.real(), (re == 0) == h.atoms["integer"])
+                add(R.implies(real(), eq(eq(re, num(0)), h.p.atoms["integer"])))
                 ce = c.expr
                 if isinstance(ce, Mul) and len(ce.args) == 2 and ce.args[0] in (S.Half, -S.Half):
                     # c = +-y/2 lies in 1/2 + Z iff y is an odd integer (the
                     # same fact, on y's integer witness)
-                    y = self.term(ce.args[1])
-                    self._add(z3.Implies(y.real(), (re == 0) == z3.And(y.atoms["integer"], y.r == 1)))
+                    Y = self.term(ce.args[1]).p
+                    # Implies(y.real(), (re == 0) == And(y.atoms["integer"], y.r == 1))
+                    add(R.implies(R.and_(Y.fin, eq(Y.im, num(0))),
+                                  eq(eq(re, num(0)), R.and_(Y.atoms["integer"], eq(Y.r, R.int(1))))))
         # Hermite-Lindemann (1882)
-        self._add(z3.Implies(z3.And(z.fin, za["algebraic"], z3.Not(zero)), z3.Not(a["algebraic"])))
+        # Implies(And(z.fin, za["algebraic"], Not(zero)), Not(a["algebraic"]))
+        add(R.implies(R.and_(Z.fin, za["algebraic"], R.not_(zero)), R.not_(a["algebraic"])))
         if isinstance(w, log) and len(w.args) == 1:
             v = self.term(w.args[0])
-            ok = z3.And(v.fin, z3.Not(z3.And(v.re == 0, v.im == 0)))
-            self._add(z3.Implies(ok, z3.And(t.fin, t.re == v.re, t.im == v.im)))
+            V = v.p
+            # And(v.fin, Not(And(v.re == 0, v.im == 0)))
+            ok = R.and_(V.fin, R.not_(R.and_(eq(V.re, num(0)), eq(V.im, num(0)))))
+            add(R.implies(ok, R.and_(T.fin, eq(T.re, V.re), eq(T.im, V.im))))   # Implies(ok, And(...))
             self._same(t, v, ok)
         if isinstance(w, Rational):
             b = exp_bounds(Fraction(int(w.p), int(w.q)))
             if b is not None:
-                self._add(m > self._q(b[0]), m < self._q(b[1]))
+                # m > q, m < q: q (a RatNumRef) compares first (_reflected)
+                lo = self._q(b[0])
+                add(lt(lo.as_ast(), M))
+                hi = self._q(b[1])
+                add(gt(hi.as_ast(), M))
 
+    @_scoped
     def _log(self, t: Term, z: Term):
         """``log(z)``, SymPy's principal branch ``log|z| + I*arg(z)``,
         ``-pi < arg(z) <= pi``.
@@ -1258,41 +1394,68 @@ class Encoder:
         would be transcendental for algebraic ``w``).  ``log(exp(x)) = x``
         for real ``x``.  At a rational point ``r``, ``re`` lies in the
         rational enclosure of ``log|r|`` (``bounds.log_bounds``)."""
-        a, za = t.atoms, z.atoms
-        ctx = self.ctx
-        self._add(z3.Implies(z.nan, t.nan), z3.Implies(z3.Or(z.pinf, z.ninf), t.pinf),
-                  z3.Implies(z.cinf, z3.Or(t.pinf, t.cinf)),
-                  z3.Implies(z3.And(z.fin, z.re == 0, z.im == 0), t.cinf))
-        x, y, th = z.re, z.im, t.im
-        nz = z3.And(z.fin, z3.Not(z3.And(x == 0, y == 0)))
+        R, add, num = self._raw, self._add_raw, self._raw.real
+        eq, gt, lt, ge, neg = R.eq, R.gt, R.lt, R.ge, R.neg
+        T, Z = t.p, z.p
+        a, za = T.atoms, Z.atoms
+        add(R.implies(Z.nan, T.nan))                                        # Implies(z.nan, t.nan)
+        add(R.implies(R.or_(Z.pinf, Z.ninf), T.pinf))                       # Implies(Or(z.pinf, z.ninf), t.pinf)
+        add(R.implies(Z.cinf, R.or_(T.pinf, T.cinf)))                       # Implies(z.cinf, Or(t.pinf, t.cinf))
+        # Implies(And(z.fin, z.re == 0, z.im == 0), t.cinf)
+        add(R.implies(R.and_(Z.fin, eq(Z.re, num(0)), eq(Z.im, num(0))), T.cinf))
+        x, y, th = Z.re, Z.im, T.im
+        nz = R.and_(Z.fin, R.not_(R.and_(eq(x, num(0)), eq(y, num(0)))))   # And(z.fin, Not(And(x == 0, y == 0)))
         m = self._fresh_real("logm")
-        self._add(z3.Implies(nz, z3.And(t.fin, m > 0, m * m == x * x + y * y, m >= x, m >= -x, m >= y, m >= -y)),
-                  z3.Implies(z3.And(nz, y == 0), m == z3.If(x >= 0, x, -x)))
-        self._exp_pair(nz, t.re, m)
-        pi = self.term(S.Pi).re
-        self._add(z3.Implies(nz, z3.And(
-            z3.Implies(y > 0, z3.And(th > 0, th < pi)),
-            z3.Implies(y < 0, z3.And(th < 0, th > -pi)),
-            z3.Implies(z3.And(y == 0, x > 0), th == 0),
-            z3.Implies(z3.And(y == 0, x < 0), th == pi),
-            z3.Implies(x > 0, z3.And(2 * th < pi, 2 * th > -pi)),
-            z3.Implies(z3.And(x == 0, y > 0), 2 * th == pi),
-            z3.Implies(z3.And(x == 0, y < 0), 2 * th == -pi),
-            z3.Implies(z3.And(x < 0, y > 0), 2 * th > pi),
-            z3.Implies(z3.And(x < 0, y < 0), 2 * th < -pi))))
-        one = z3.And(z.fin, x == 1, y == 0)
-        self._int_value(t, one, z3.IntVal(0, ctx))
+        M = m.as_ast()
+        # Implies(nz, And(t.fin, m > 0, m * m == x * x + y * y, m >= x, m >= -x, m >= y, m >= -y))
+        add(R.implies(nz, R.and_(T.fin, gt(M, num(0)), eq(R.mul(M, M), R.add(R.mul(x, x), R.mul(y, y))),
+                                 ge(M, x), ge(M, neg(x)), ge(M, y), ge(M, neg(y)))))
+        # Implies(And(nz, y == 0), m == If(x >= 0, x, -x))
+        add(R.implies(R.and_(nz, eq(y, num(0))), eq(M, R.ite(ge(x, num(0)), x, neg(x)))))
+        self._exp_pair(z3.BoolRef(nz, self.ctx), t.re, m)
+        pi = self.term(S.Pi).p.re
+        th2 = lambda: R.mul(num(2), th)                                     # noqa: E731 (2 * th)
+        # Implies(nz, And(
+        #     Implies(y > 0, And(th > 0, th < pi)),
+        #     Implies(y < 0, And(th < 0, th > -pi)),
+        #     Implies(And(y == 0, x > 0), th == 0),
+        #     Implies(And(y == 0, x < 0), th == pi),
+        #     Implies(x > 0, And(2 * th < pi, 2 * th > -pi)),
+        #     Implies(And(x == 0, y > 0), 2 * th == pi),
+        #     Implies(And(x == 0, y < 0), 2 * th == -pi),
+        #     Implies(And(x < 0, y > 0), 2 * th > pi),
+        #     Implies(And(x < 0, y < 0), 2 * th < -pi)))
+        add(R.implies(nz, R.and_(
+            R.implies(gt(y, num(0)), R.and_(gt(th, num(0)), lt(th, pi))),
+            R.implies(lt(y, num(0)), R.and_(lt(th, num(0)), gt(th, neg(pi)))),
+            R.implies(R.and_(eq(y, num(0)), gt(x, num(0))), eq(th, num(0))),
+            R.implies(R.and_(eq(y, num(0)), lt(x, num(0))), eq(th, pi)),
+            R.implies(gt(x, num(0)), R.and_(lt(th2(), pi), gt(th2(), neg(pi)))),
+            R.implies(R.and_(eq(x, num(0)), gt(y, num(0))), eq(th2(), pi)),
+            R.implies(R.and_(eq(x, num(0)), lt(y, num(0))), eq(th2(), neg(pi))),
+            R.implies(R.and_(lt(x, num(0)), gt(y, num(0))), gt(th2(), pi)),
+            R.implies(R.and_(lt(x, num(0)), lt(y, num(0))), lt(th2(), neg(pi))))))
+        one = R.and_(Z.fin, eq(x, num(1)), eq(y, num(0)))                   # And(z.fin, x == 1, y == 0)
+        self._int_value(t, one, R.int(0))
         # Hermite-Lindemann (1882)
-        self._add(z3.Implies(z3.And(nz, za["algebraic"], z3.Not(one)), z3.Not(a["algebraic"])))
+        # Implies(And(nz, za["algebraic"], Not(one)), Not(a["algebraic"]))
+        add(R.implies(R.and_(nz, za["algebraic"], R.not_(one)), R.not_(a["algebraic"])))
         w = z.expr
         if isinstance(w, exp) and len(w.args) == 1:
             v = self.term(w.args[0])
-            self._add(z3.Implies(v.real(), z3.And(t.fin, t.re == v.re, t.im == 0)))
-            self._same(t, v, v.real())
+            V = v.p
+            real = lambda: R.and_(V.fin, eq(V.im, num(0)))                 # noqa: E731 (v.real())
+            # Implies(v.real(), And(t.fin, t.re == v.re, t.im == 0))
+            add(R.implies(real(), R.and_(T.fin, eq(T.re, V.re), eq(T.im, num(0)))))
+            self._same(t, v, real())
         if isinstance(w, Rational) and w != 0:
             b = log_bounds(abs(Fraction(int(w.p), int(w.q))))
             if b is not None:
-                self._add(t.re > self._q(b[0]), t.re < self._q(b[1]))
+                # t.re > q, t.re < q: q (a RatNumRef) compares first (_reflected)
+                lo = self._q(b[0])
+                add(lt(lo.as_ast(), T.re))
+                hi = self._q(b[1])
+                add(gt(hi.as_ast(), T.re))
 
     # -- circular and hyperbolic functions ------------------------------
 

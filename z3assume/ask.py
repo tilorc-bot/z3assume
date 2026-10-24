@@ -31,8 +31,9 @@ def _check(enc: Encoder, *fs):
     s = z3.Solver(ctx=enc.ctx)
     s.set("rlimit", RLIMIT)
     s.set("timeout", TIMEOUT_MS)
+    c, solver = enc.ctx.ref(), s.solver
     for f in enc.axioms:            # raw pointers, in order (s.add would wrap each)
-        Z3_solver_assert(enc.ctx.ref(), s.solver, f)
+        Z3_solver_assert(c, solver, f)
     s.add(*fs)
     r = s.check()
     last["checks"] += 1
