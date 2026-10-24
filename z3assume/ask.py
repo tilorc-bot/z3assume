@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 import z3
+from z3.z3core import Z3_solver_assert
 from sympy import Basic
 from sympy.core.function import AppliedUndef
 
@@ -30,7 +31,8 @@ def _check(enc: Encoder, *fs):
     s = z3.Solver(ctx=enc.ctx)
     s.set("rlimit", RLIMIT)
     s.set("timeout", TIMEOUT_MS)
-    s.add(enc.axioms)
+    for f in enc.axioms:            # raw pointers, in order (s.add would wrap each)
+        Z3_solver_assert(enc.ctx.ref(), s.solver, f)
     s.add(*fs)
     r = s.check()
     last["checks"] += 1

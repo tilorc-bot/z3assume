@@ -7,11 +7,13 @@ order), so the problem z3 sees does not depend on hashing.
 """
 from __future__ import annotations
 
+import ctypes
 import math
 from fractions import Fraction
 from math import lcm
 
 import z3
+from z3 import z3core as _C
 from sympy import Basic, S, Symbol
 from sympy.core.add import Add
 from sympy.core.mul import Mul
@@ -116,15 +118,17 @@ class Unsupported(Exception):
 class Term:
     """The z3 variables of one SymPy term."""
 
-    __slots__ = ("expr", "fin", "pinf", "ninf", "cinf", "nan", "re", "im", "k", "h", "r", "atoms")
+    __slots__ = ("expr", "fin", "pinf", "ninf", "cinf", "nan", "re", "im", "k", "h", "r", "atoms", "p")
 
-    def __init__(self, expr, n: int, ctx):
+    def __init__(self, expr, n: int, ctx, raw):
         self.expr = expr
-        b = lambda s: z3.Bool(f"{s}{n}", ctx)  # noqa: E731
+        b = lambda s: raw.const(f"{s}{n}", "bool")  # noqa: E731
         self.fin, self.pinf, self.ninf, self.cinf, self.nan = (b(s) for s in ("fin", "pinf", "ninf", "cinf", "nan"))
-        self.re, self.im = z3.Real(f"re{n}", ctx), z3.Real(f"im{n}", ctx)
-        self.k, self.h, self.r = z3.Int(f"k{n}", ctx), z3.Int(f"h{n}", ctx), z3.Int(f"r{n}", ctx)
+        self.re, self.im = raw.const(f"re{n}", "real"), raw.const(f"im{n}", "real")
+        self.k, self.h, self.r = raw.const(f"k{n}", "int"), raw.const(f"h{n}", "int"), raw.const(f"r{n}", "int")
         self.atoms = {p: b(f"{p}_") for p in BASIS}
+        #: the same variables as raw pointers (``_Raw``)
+        self.p = _Ptrs(self)
 
     def real(self):
         """The value is a finite real."""
@@ -137,9 +141,147 @@ class Term:
         return z3.Not(z3.Or(self.fin, self.nan))
 
 
+class _Ptrs:
+    """The raw pointers of a term's variables, held by its AstRefs."""
+
+    __slots__ = ("fin", "pinf", "ninf", "cinf", "nan", "re", "im", "k", "h", "r", "atoms")
+
+    def __init__(self, t: Term):
+        for v in self.__slots__[:-1]:
+            setattr(self, v, getattr(t, v).as_ast())
+        self.atoms = {p: x.as_ast() for p, x in t.atoms.items()}
+
+
 def _lit(atoms, pred, pos):
     a = atoms[pred]
     return a if pos else z3.Not(a)
+
+
+class _Raw:
+    """z3 terms built with the C API (``z3core``: each call checks z3's
+    error code) on raw AST pointers, without the Python wrapper's AstRef,
+    coercion and reference counting per node, which were most of the
+    encoding time (issue #15).  The callers make the calls the wrapper
+    code would make, in the same order, so z3 gets the same hash-consed
+    terms with the same ids.
+
+    A raw node lives only until the next API call unless something holds
+    it, and z3's simplifiers treat a node held more than once (shared)
+    differently, which changes the rlimit count.  So the references are
+    those of the wrapper code: ``keep`` holds the axioms (as the list of
+    AstRefs did), and ``tmp`` the nodes being built (as the wrapper's
+    temporary AstRefs did) until ``release``, after which only their
+    parents hold them."""
+
+    def __init__(self, ctx):
+        self.ctx, self.ref = ctx, ctx.ref()
+        self.keep = z3.AstVector(ctx=ctx)
+        self.tmp = z3.AstVector(ctx=ctx)
+        self._int, self._real = z3.IntSort(ctx).ast, z3.RealSort(ctx).ast
+        self._sorts = {"bool": (z3.BoolSort(ctx).ast, z3.BoolRef), "int": (self._int, z3.ArithRef),
+                       "real": (self._real, z3.ArithRef)}
+
+    def const(self, name: str, sort: str):
+        """``z3.Bool``, ``z3.Int``, ``z3.Real``: an AstRef (the wrapper code
+        uses the terms' variables)."""
+        s, cls = self._sorts[sort]
+        return cls(_C.Z3_mk_const(self.ref, _C.Z3_mk_string_symbol(self.ref, name), s), self.ctx)
+
+    def _new(self, a):
+        _C.Z3_ast_vector_push(self.ref, self.tmp.vector, a)
+        return a
+
+    def temp(self, a):
+        """The pointer ``a`` of a live AstRef, held until ``release``."""
+        return self._new(a)
+
+    def mark(self) -> int:
+        return _C.Z3_ast_vector_size(self.ref, self.tmp.vector)
+
+    def release(self, mark: int):
+        """Drop the nodes made since ``mark`` (the wrapper's temporaries
+        die when the function that made them returns)."""
+        _C.Z3_ast_vector_resize(self.ref, self.tmp.vector, mark)
+
+    def hold(self, a):
+        """``a`` held as an axiom."""
+        _C.Z3_ast_vector_push(self.ref, self.keep.vector, a)
+        return a
+
+    def truncate(self, n: int):
+        """Only the first ``n`` axioms held."""
+        _C.Z3_ast_vector_resize(self.ref, self.keep.vector, n)
+
+    def int(self, n: int):
+        """``IntVal(n)``, as the wrapper makes it to coerce ``n``."""
+        return self._new(_C.Z3_mk_numeral(self.ref, str(n), self._int))
+
+    def real(self, n: int):
+        """``RealVal(n)``."""
+        return self._new(_C.Z3_mk_numeral(self.ref, str(n), self._real))
+
+    def _array(self, args):
+        return len(args), (_C.Ast * len(args))(*args)
+
+    def not_(self, a):
+        return self._new(_C.Z3_mk_not(self.ref, a))
+
+    def and_(self, *args):
+        return self._new(_C.Z3_mk_and(self.ref, *self._array(args)))
+
+    def or_(self, *args):
+        return self._new(_C.Z3_mk_or(self.ref, *self._array(args)))
+
+    def true(self):
+        return self._new(_C.Z3_mk_true(self.ref))
+
+    def false(self):
+        return self._new(_C.Z3_mk_false(self.ref))
+
+    def xor(self, a, b):
+        return self._new(_C.Z3_mk_xor(self.ref, a, b))
+
+    def ite(self, c, a, b):
+        return self._new(_C.Z3_mk_ite(self.ref, c, a, b))
+
+    def implies(self, a, b):
+        return self._new(_C.Z3_mk_implies(self.ref, a, b))
+
+    def eq(self, a, b):
+        return self._new(_C.Z3_mk_eq(self.ref, a, b))
+
+    def ne(self, a, b):
+        """``a != b``: the wrapper makes ``distinct(a, b)``."""
+        return self._new(_C.Z3_mk_distinct(self.ref, *self._array((a, b))))
+
+    def lt(self, a, b):
+        return self._new(_C.Z3_mk_lt(self.ref, a, b))
+
+    def le(self, a, b):
+        return self._new(_C.Z3_mk_le(self.ref, a, b))
+
+    def gt(self, a, b):
+        return self._new(_C.Z3_mk_gt(self.ref, a, b))
+
+    def ge(self, a, b):
+        return self._new(_C.Z3_mk_ge(self.ref, a, b))
+
+    def add(self, *args):
+        return self._new(_C.Z3_mk_add(self.ref, *self._array(args)))
+
+    def mul(self, *args):
+        return self._new(_C.Z3_mk_mul(self.ref, *self._array(args)))
+
+    def to_real(self, a):
+        return self._new(_C.Z3_mk_int2real(self.ref, a))
+
+    def is_int(self, a):
+        return self._new(_C.Z3_mk_is_int(self.ref, a))
+
+    def pbeq(self, args, k: int):
+        """``PbEq`` with all coefficients 1."""
+        n, arr = self._array(args)
+        return self._new(_C.Z3_mk_pbeq(self.ref, n, arr, (ctypes.c_int * n)(*[1] * n), k))
 
 
 class Encoder:
@@ -148,7 +290,9 @@ class Encoder:
     def __init__(self, ctx):
         self.ctx = ctx
         self.terms = {}
+        #: raw pointers (``_Raw``), held by ``self._raw.keep``, in order
         self.axioms = []
+        self._raw = _Raw(ctx)
         self.opaque = {}
         self._congruent = set()
         self._pairs = []
@@ -169,7 +313,7 @@ class Encoder:
         if not isinstance(e, Basic) or not e.is_commutative:
             raise Unsupported(f"not a commutative scalar: {e!r}")
         args = [self.term(a) for a in e.args] if isinstance(e, (Add, Mul)) else None
-        t = Term(e, len(self.terms), self.ctx)
+        t = Term(e, len(self.terms), self.ctx, self._raw)
         self.terms[e] = t
         self._lin[t] = self._scaled(t, e, args)
         self._shape(t)
@@ -177,62 +321,94 @@ class Encoder:
         return t
 
     def _add(self, *fs):
-        self.axioms.extend(fs)
+        self.axioms.extend(self._raw.hold(f.as_ast()) for f in fs)
+
+    def _add_raw(self, a):
+        self.axioms.append(self._raw.hold(a))
 
     def _shape(self, t: Term):
         """The kind is one of five; the basis Booleans are the numeric
         definitions unless the value is nan, the rules always; nan is no
-        number."""
-        kinds = [t.fin, t.pinf, t.ninf, t.cinf, t.nan]
-        self._add(z3.PbEq([(k, 1) for k in kinds], 1))
-        a = t.atoms
+        number.
+
+        These are most of the axioms (about 50 per term), so they are made
+        raw (``_Raw``).  The comments give the wrapper code each axiom
+        stands for: the raw calls make its nodes in its order (Python's:
+        the arguments of a call left to right, then the call; a node made
+        again is the same node)."""
+        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        T = t.p
+        fin, pinf, ninf, cinf, nan, re, im, k, h, r, a = (T.fin, T.pinf, T.ninf, T.cinf, T.nan, T.re, T.im,
+                                                          T.k, T.h, T.r, T.atoms)
+        # PbEq([(k, 1) for k in kinds], 1)
+        add(R.pbeq([fin, pinf, ninf, cinf, nan], 1))
+        real = R.and_(fin, R.eq(im, R.real(0)))                               # t.real()
         defs = {
-            "finite": t.fin,
-            "complex": t.fin,
-            "extended_real": t.ext_real(),
-            "extended_positive": z3.Or(z3.And(t.real(), t.re > 0), t.pinf),
-            "extended_negative": z3.Or(z3.And(t.real(), t.re < 0), t.ninf),
-            "zero": z3.And(t.real(), t.re == 0),
-            "imaginary": z3.And(t.fin, t.re == 0, t.im != 0),
+            "finite": fin,
+            "complex": fin,
+            "extended_real": R.or_(real, pinf, ninf),                         # t.ext_real()
+            "extended_positive": R.or_(R.and_(real, R.gt(re, R.real(0))), pinf),
+            "extended_negative": R.or_(R.and_(real, R.lt(re, R.real(0))), ninf),
+            "zero": R.and_(real, R.eq(re, R.real(0))),
+            "imaginary": R.and_(fin, R.eq(re, R.real(0)), R.ne(im, R.real(0))),
         }
+        notnan = R.not_(nan)
         for p, d in defs.items():
-            self._add(z3.Implies(z3.Not(t.nan), a[p] == d))
+            add(R.implies(notnan, R.eq(a[p], d)))       # Implies(Not(t.nan), a[p] == d)
         # satassume's convention for nan (docs/special-values.md row V1):
         # every predicate is False except finite (and infinite) and polar;
         # commutative is True of every term in scope (design.md)
-        self._add(*(z3.Implies(t.nan, z3.Not(a[p])) for p in BASIS if p not in ("finite", "polar")))
-        notnan = z3.Not(t.nan)
+        nots = {}
+        for p in BASIS:
+            if p not in ("finite", "polar"):
+                nots[p] = R.not_(a[p])
+                add(R.implies(nan, nots[p]))            # Implies(t.nan, Not(a[p]))
         # integer witnesses: z3 reasons about integers in the Int sort
-        self._add(z3.Implies(z3.And(notnan, a["integer"]),
-                             z3.And(t.real(), t.re == z3.ToReal(t.k), t.k == 2 * t.h + t.r, t.r >= 0, t.r <= 1)),
-                  self._non_integer(t),
-                  z3.Implies(notnan, a["even"] == z3.And(a["integer"], t.r == 0)),
-                  z3.Implies(z3.And(notnan, a["prime"]), z3.And(a["integer"], t.k >= 2)),
-                  z3.Implies(z3.And(notnan, a["integer"], z3.Or(t.k == 2, t.k == 3)), a["prime"]),
-                  z3.Implies(z3.And(notnan, a["prime"], a["even"]), t.k == 2),
-                  z3.Implies(notnan, a["composite"] == z3.And(a["integer"], t.k >= 2, z3.Not(a["prime"]))),
-                  z3.Implies(z3.And(notnan, a["rational"]), t.real()))
+        # Implies(And(notnan, a["integer"]),
+        #         And(t.real(), t.re == ToReal(t.k), t.k == 2 * t.h + t.r, t.r >= 0, t.r <= 1))
+        add(R.implies(R.and_(notnan, a["integer"]),
+                      R.and_(real, R.eq(re, R.to_real(k)), R.eq(k, R.add(R.mul(R.int(2), h), r)),
+                             R.ge(r, R.int(0)), R.le(r, R.int(1)))))
+        add(self._non_integer(t, R.and_(notnan, real, nots["integer"])))
+        # Implies(notnan, a["even"] == And(a["integer"], t.r == 0))
+        add(R.implies(notnan, R.eq(a["even"], R.and_(a["integer"], R.eq(r, R.int(0))))))
+        # Implies(And(notnan, a["prime"]), And(a["integer"], t.k >= 2))
+        add(R.implies(R.and_(notnan, a["prime"]), R.and_(a["integer"], R.ge(k, R.int(2)))))
+        # Implies(And(notnan, a["integer"], Or(t.k == 2, t.k == 3)), a["prime"])
+        add(R.implies(R.and_(notnan, a["integer"], R.or_(R.eq(k, R.int(2)), R.eq(k, R.int(3)))), a["prime"]))
+        # Implies(And(notnan, a["prime"], a["even"]), t.k == 2)
+        add(R.implies(R.and_(notnan, a["prime"], a["even"]), R.eq(k, R.int(2))))
+        # Implies(notnan, a["composite"] == And(a["integer"], t.k >= 2, Not(a["prime"])))
+        add(R.implies(notnan, R.eq(a["composite"], R.and_(a["integer"], R.ge(k, R.int(2)), nots["prime"]))))
+        # Implies(And(notnan, a["rational"]), t.real())
+        add(R.implies(R.and_(notnan, a["rational"]), real))
+        lit = lambda p, s: a[p] if s else nots[p]  # noqa: E731
         for prem, concl in RULES:
-            self._add(z3.Implies(z3.And([_lit(a, p, s) for p, s in prem]),
-                                 z3.Or([_lit(a, p, s) for p, s in concl])))
+            add(R.implies(R.and_(*[lit(p, s) for p, s in prem]), R.or_(*[lit(p, s) for p, s in concl])))
+        R.release(mark)
 
-    def _non_integer(self, t: Term):
-        """A finite real non-integer: ``Not(IsInt(re_t))``, unless ``t`` has a
+    def _non_integer(self, t: Term, noint):
+        """A finite real non-integer (``noint``, the raw
+        ``And(Not(t.nan), t.real(), Not(a["integer"]))``):
+        ``Not(IsInt(re_t))``, unless ``t`` has a
         scaled witness ``n/d`` with ``d > 1``: under its ``cond`` the integer
         facts of ``t`` are stated over the integers instead (``t`` is an
         integer iff ``d`` divides ``n``, and then ``k_t = n/d``), as z3 does
         not decide ``IsInt`` of a real with rational coefficients over
-        integers (issue #12)."""
+        integers (issue #12).  A raw axiom; the rarer second case is made
+        with the wrapper."""
         d, n, cond = self._lin[t]
-        a = t.atoms
-        noint = z3.And(z3.Not(t.nan), t.real(), z3.Not(a["integer"]))
+        R = self._raw
         if d == 1 or cond is True:
-            return z3.Implies(noint, z3.Not(z3.IsInt(t.re)))
+            return R.implies(noint, R.not_(R.is_int(t.p.re)))
+        a = t.atoms
+        noint = z3.BoolRef(noint, self.ctx)
         c = self._count()
         q, r = z3.Int(f"dq{c}", self.ctx), z3.Int(f"dr{c}", self.ctx)
-        return z3.And(z3.Implies(cond, z3.And(n == d * q + r, r >= 0, r < d, a["integer"] == (r == 0))),
-                      z3.Implies(z3.And(cond, a["integer"]), t.k == q),
-                      z3.Implies(z3.And(noint, z3.Not(cond)), z3.Not(z3.IsInt(t.re))))
+        f = z3.And(z3.Implies(cond, z3.And(n == d * q + r, r >= 0, r < d, a["integer"] == (r == 0))),
+                   z3.Implies(z3.And(cond, a["integer"]), t.k == q),
+                   z3.Implies(z3.And(noint, z3.Not(cond)), z3.Not(z3.IsInt(t.re))))
+        return R.temp(f.as_ast())           # held before the AstRef f goes
 
     def _scaled(self, t: Term, e, args):
         """The scaled integer witness of ``t`` (docs/design.md, "Values"):
@@ -270,7 +446,13 @@ class Encoder:
             self._node(t, Integer(1), None)
             one = self.axioms[start:]
             del self.axioms[start:]
-            self._add(z3.Implies(z3.Not(b.nan), z3.And(one)))
+            # Implies(Not(b.nan), And(one)), raw as the axioms are; then
+            # only it holds them
+            R, mark = self._raw, self._raw.mark()
+            f = R.implies(R.not_(b.p.nan), R.and_(*one))
+            R.truncate(start)
+            self._add_raw(f)
+            R.release(mark)
             return
         if isinstance(e, Integer):
             n = int(e)
@@ -375,53 +557,74 @@ class Encoder:
     def _opaque(self, t: Term, e):
         """A term outside the encoding: any value, nan included."""
 
-    def _sum(self, t: Term, args):
-        allfin = z3.And([x.fin for x in args])
-        self._add(z3.Implies(allfin, z3.And(t.fin, t.re == z3.Sum([x.re for x in args]),
-                                            t.im == z3.Sum([x.im for x in args]))))
-        allint = z3.And([x.atoms["integer"] for x in args])
-        self._add(z3.Implies(z3.And(allfin, allint), z3.And(t.atoms["integer"],
-                                                            t.k == z3.Sum([x.k for x in args]))))
-        self._add(z3.Implies(z3.Or([x.nan for x in args]), t.nan))
-        for inf, other in ((t.pinf, "ninf"), (t.ninf, "pinf")):
-            pick = (lambda x: x.pinf) if other == "ninf" else (lambda x: x.ninf)
-            self._add(z3.Implies(z3.And(z3.Or([pick(x) for x in args]),
-                                        z3.And([z3.Or(x.fin, pick(x)) for x in args])), inf))
-        self._add(z3.Implies(z3.And(z3.Or([x.pinf for x in args]), z3.Or([x.ninf for x in args])), t.nan))
-        for i, x in enumerate(args):
-            rest = [y.fin for j, y in enumerate(args) if j != i]
-            self._add(z3.Implies(z3.And(x.cinf, *rest), t.cinf))
-        self._closure(t, args, allfin, lambda y: z3.BoolVal(True, self.ctx))
+    # Sums and products are in most queries, so their axioms are raw too
+    # (as _shape's: the wrapper code in the comments, its nodes in its
+    # order); x.p are the raw variables of the term x.
 
-    def _closure(self, t: Term, args, allfin, cancel):
+    def _sum(self, t: Term, args):
+        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        T, xs = t.p, [x.p for x in args]
+        allfin = R.and_(*[x.fin for x in xs])                     # And([x.fin for x in args])
+        # Implies(allfin, And(t.fin, t.re == Sum([x.re ...]), t.im == Sum([x.im ...])))
+        add(R.implies(allfin, R.and_(T.fin, R.eq(T.re, R.add(*[x.re for x in xs])),
+                                     R.eq(T.im, R.add(*[x.im for x in xs])))))
+        allint = R.and_(*[x.atoms["integer"] for x in xs])
+        # Implies(And(allfin, allint), And(t.atoms["integer"], t.k == Sum([x.k ...])))
+        add(R.implies(R.and_(allfin, allint), R.and_(T.atoms["integer"], R.eq(T.k, R.add(*[x.k for x in xs])))))
+        add(R.implies(R.or_(*[x.nan for x in xs]), T.nan))      # Implies(Or([x.nan ...]), t.nan)
+        # +-oo among finite values and the same infinity
+        for inf, kind in ((T.pinf, "pinf"), (T.ninf, "ninf")):
+            # Implies(And(Or([x.<kind> ...]), And([Or(x.fin, x.<kind>) ...])), inf)
+            add(R.implies(R.and_(R.or_(*[getattr(x, kind) for x in xs]),
+                                 R.and_(*[R.or_(x.fin, getattr(x, kind)) for x in xs])), inf))
+        # Implies(And(Or([x.pinf ...]), Or([x.ninf ...])), t.nan)
+        add(R.implies(R.and_(R.or_(*[x.pinf for x in xs]), R.or_(*[x.ninf for x in xs])), T.nan))
+        for i, x in enumerate(xs):
+            rest = [y.fin for j, y in enumerate(xs) if j != i]
+            add(R.implies(R.and_(x.cinf, *rest), T.cinf))         # Implies(And(x.cinf, *rest), t.cinf)
+        self._closure(T, xs, allfin, lambda y: R.true())          # BoolVal(True)
+        R.release(mark)
+
+    def _closure(self, T, xs, allfin, cancel):
         """Field closure of rationals and algebraic numbers among finite
         values; ``cancel(y)`` is the condition under which ``y`` can be
-        taken out of the operation (any summand; a nonzero factor)."""
+        taken out of the operation (any summand; a nonzero factor).  Raw:
+        ``T``, ``xs`` are the pointers of the term and its arguments."""
+        add = self._add_raw
+        R = self._raw
         for p in ("rational", "algebraic"):
-            self._add(z3.Implies(z3.And(allfin, *[x.atoms[p] for x in args]), t.atoms[p]))
-            if len(args) > 1:
-                for i, x in enumerate(args):
-                    rest = [z3.And(y.atoms[p], cancel(y)) for j, y in enumerate(args) if j != i]
-                    self._add(z3.Implies(z3.And(allfin, t.atoms[p], *rest), x.atoms[p]))
+            # Implies(And(allfin, *[x.atoms[p] ...]), t.atoms[p])
+            add(R.implies(R.and_(allfin, *[x.atoms[p] for x in xs]), T.atoms[p]))
+            if len(xs) > 1:
+                for i, x in enumerate(xs):
+                    # Implies(And(allfin, t.atoms[p], *[And(y.atoms[p], cancel(y)) for the others]), x.atoms[p])
+                    rest = [R.and_(y.atoms[p], cancel(y)) for j, y in enumerate(xs) if j != i]
+                    add(R.implies(R.and_(allfin, T.atoms[p], *rest), x.atoms[p]))
 
     def _product(self, t: Term, args):
-        allfin = z3.And([x.fin for x in args])
+        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        T, xs = t.p, [x.p for x in args]
+        allfin = R.and_(*[x.fin for x in xs])
         re, im = args[0].re, args[0].im
         for x in args[1:]:
             re, im = self._fresh_mul(re, im, x.re, x.im)
-        self._add(z3.Implies(allfin, z3.And(t.fin, t.re == re, t.im == im)))
-        allint = z3.And([x.atoms["integer"] for x in args])
-        k = args[0].k
-        for x in args[1:]:
-            k = k * x.k
-        self._add(z3.Implies(z3.And(allfin, allint), z3.And(t.atoms["integer"], t.k == k)))
-        self._infinite_product(t, args)
-        self._closure(t, args, allfin, lambda y: z3.Not(y.atoms["zero"]))
+        # Implies(allfin, And(t.fin, t.re == re, t.im == im))
+        add(R.implies(allfin, R.and_(T.fin, R.eq(T.re, re.as_ast()), R.eq(T.im, im.as_ast()))))
+        allint = R.and_(*[x.atoms["integer"] for x in xs])
+        k = xs[0].k
+        for x in xs[1:]:
+            k = R.mul(k, x.k)                                     # k = k * x.k
+        # Implies(And(allfin, allint), And(t.atoms["integer"], t.k == k))
+        add(R.implies(R.and_(allfin, allint), R.and_(T.atoms["integer"], R.eq(T.k, k))))
+        self._infinite_product(T, xs)
+        self._closure(T, xs, allfin, lambda y: R.not_(y.atoms["zero"]))   # Not(y.atoms["zero"])
         # (+-1/q)*x for an integer q: x = +-q*t is an integer when t is
         var = [x for x in args if not isinstance(x.expr, Rational)]
         c = Mul(*[x.expr for x in args if isinstance(x.expr, Rational)])
         if len(var) == 1 and abs(c.p) == 1 and c.q > 1:
-            self._add(z3.Implies(z3.And(var[0].fin, t.atoms["integer"]), var[0].atoms["integer"]))
+            # Implies(And(var[0].fin, t.atoms["integer"]), var[0].atoms["integer"])
+            add(R.implies(R.and_(var[0].p.fin, T.atoms["integer"]), var[0].p.atoms["integer"]))
+        R.release(mark)
 
     def _fresh_mul(self, a, b, c, d):
         """(a + b*I)*(c + d*I) as two fresh reals."""
@@ -430,20 +633,27 @@ class Encoder:
         self._add(re == a * c - b * d, im == a * d + b * c)
         return re, im
 
-    def _infinite_product(self, t: Term, args):
+    def _infinite_product(self, T, xs):
         """0 * infinity is nan; nonzero values with an infinity among them
-        give an infinity, signed when all are extended real."""
-        anynan = z3.Or([x.nan for x in args])
-        anyinf = z3.Or([x.infinite() for x in args])
-        anyzero = z3.Or([x.atoms["zero"] for x in args])
-        self._add(z3.Implies(anynan, t.nan), z3.Implies(z3.And(anyinf, anyzero), t.nan))
-        nonzero = z3.And([z3.Not(z3.Or(x.nan, x.atoms["zero"])) for x in args])
-        self._add(z3.Implies(z3.And(anyinf, nonzero), t.infinite()))
-        allext = z3.And([x.ext_real() for x in args])
-        neg = z3.BoolVal(False, self.ctx)
-        for x in args:
-            neg = z3.Xor(neg, x.atoms["extended_negative"])
-        self._add(z3.Implies(z3.And(anyinf, nonzero, allext), z3.If(neg, t.ninf, t.pinf)))
+        give an infinity, signed when all are extended real.  Raw, as
+        ``_closure``."""
+        R, add = self._raw, self._add_raw
+        infinite = lambda x: R.not_(R.or_(x.fin, x.nan))         # noqa: E731 (x.infinite())
+        anynan = R.or_(*[x.nan for x in xs])
+        anyinf = R.or_(*[infinite(x) for x in xs])
+        anyzero = R.or_(*[x.atoms["zero"] for x in xs])
+        add(R.implies(anynan, T.nan))                             # Implies(anynan, t.nan)
+        add(R.implies(R.and_(anyinf, anyzero), T.nan))            # Implies(And(anyinf, anyzero), t.nan)
+        # And([Not(Or(x.nan, x.atoms["zero"])) ...])
+        nonzero = R.and_(*[R.not_(R.or_(x.nan, x.atoms["zero"])) for x in xs])
+        add(R.implies(R.and_(anyinf, nonzero), infinite(T)))      # Implies(And(anyinf, nonzero), t.infinite())
+        # And([x.ext_real() ...]), x.ext_real() = Or(And(x.fin, x.im == 0), x.pinf, x.ninf)
+        allext = R.and_(*[R.or_(R.and_(x.fin, R.eq(x.im, R.real(0))), x.pinf, x.ninf) for x in xs])
+        neg = R.false()                                           # BoolVal(False)
+        for x in xs:
+            neg = R.xor(neg, x.atoms["extended_negative"])
+        # Implies(And(anyinf, nonzero, allext), If(neg, t.ninf, t.pinf))
+        add(R.implies(R.and_(anyinf, nonzero, allext), R.ite(neg, T.ninf, T.pinf)))
 
     def _power(self, t: Term, b: Term, n: int):
         # n != 0: _node encodes b**0 (1 unless b is nan); the closure axioms below need it
