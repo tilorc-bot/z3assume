@@ -161,6 +161,7 @@ move to "agree", or to "more" with an argument given here.
 | rational coefficients over the integers (#16) | 107 | 8 | 0 | none |
 | floor and ceiling (#18) | 60 | 7 | 0 | 3 stream (distinct) |
 | gamma and factorial (#21) | 42 | 5 | 0 | none |
+| `re`, `im`, `conjugate`, `sign` at the `zoo` kind (#24) | 18 | 5 | 0 | 21 stream (distinct) |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -431,6 +432,58 @@ right after, the stream took 316 s on main (load 13 to 19) and 224 s on
 this step (load 11 to 19), each with the answers of its own run and only
 backstop stops outside gamma (main 4, this step 2, stream 4181 and 5012
 on both); the gap is load, not the 22 queries.
+
+### `re`, `im`, `conjugate`, `sign` at the `zoo` kind (#24)
+
+Decision 7 now states, at the infinities of the other kind (`zoo` and the
+directed non-real infinities `oo*u`), what each of them gives: `re` is
+`+-oo`, `0` or `nan`, `im` is `+-oo` or `nan`, `conjugate` keeps the kind,
+`sign` is `nan` or a non-real unit (design.md, "Terms", decision 7). This
+changes 45 stream answers, all from None; gate2 is unchanged. 24 of them
+were "less" and now agree; 21 are new "more" (satassume None). No answer
+moves between True and False. The arguments, for a symbol `x` that may
+take any value, including the infinities and `nan`:
+
+- **`re` or `im` given positive or negative rules out every infinity**
+  (stream 10449, 10584, 11194: `Q.finite(x)` True under `Q.positive(im(x))`
+  or `Q.positive(re(x))`; and with that, 12034 to 12045, 12065, 12169 to
+  12210 under `Q.positive(re(x))`, `Q.nonnegative(re(x))` or
+  `Q.negative(re(x))`): `re` and `im` of `+-oo` are `+-oo` and `0`, of the
+  other kind `+-oo`, `0` or `nan`, and of `nan` `nan`; none is a finite
+  nonzero real (for `nonnegative`: none is a finite real except the `0` of
+  `re(oo*I)`, where `conjugate(oo*I) = -oo*I` is still no negative real).
+  So `x` is finite, and the rest is finite arithmetic: `x != 0`,
+  `sign(x) = x/|x|` has the sign of `re(x)` in its real part, so it is not
+  `0` and, given `re(x) > 0`, not a negative or nonpositive real (12038,
+  12043, 12044), given `re(x) < 0` not a positive or nonnegative one (12176
+  to 12178, and 12200 for `conjugate(x)`, whose real part is `re(x)`); it
+  is finite (12045, 12181); `sign(x)*sign(conjugate(x)) = x*conj(x)/|x|**2
+  = 1` is positive (12206) and not zero (12202, 12210).
+- **`sign` of a nonzero value is never zero, and of a non-real value never
+  real** (7365, 7366, 9321, 9501, 9538, 9539 `sign(1/x)`, `sign(x**-2)`
+  under `Q.real(x)` or `Q.complex(x)`; 11038, 13187 `Q.zero(sign(x))` under
+  `~Q.zero(x)`; 12085 to 12096 under `~Q.zero(im(x))`): at `x = 0` the
+  argument is `zoo` (row P1), whose `sign` is `nan`; else `1/x` and
+  `x**-2` are finite and nonzero, `x**-2` positive for real `x` (7365,
+  9538: `sign = 1`, not negative). Under `~Q.zero(x)`, a finite `x` has
+  `|sign(x)| = 1`, `+-oo` has `sign = +-1`, the other kind has `nan` or a
+  unit, `nan` has `nan`: never `0`. Under `~Q.zero(im(x))`, `x` is finite
+  with `im(x) != 0`, of the other kind, or `nan` (`im(+-oo) = 0` is
+  excluded): `sign(x)` is a non-real unit or `nan`, so it is no positive,
+  negative, nonnegative or nonpositive extended real (12090, 12092 to
+  12096), and `conjugate(x)` (finite non-real, of the other kind, or
+  `nan`) is no positive, negative or zero number (12085 to 12087).
+- **`re(x)**2 + im(x)**2` under `~Q.zero(x)`** (11022 `Q.zero`, 11024
+  `Q.negative`, both False): for finite `x != 0` it is `|x|**2 > 0`; at
+  `+-oo` it is `oo**2 + 0 = oo`; at the other kind `im(x)**2` is `oo` or
+  `nan`, so the sum is `oo` or `nan`; at `nan`, `nan`. Never zero or
+  negative.
+
+Still "less" in this class: stream 12097 `Q.finite(sign(x))` under
+`~Q.zero(im(x))` and gate2 954, 955 `Q.finite(sign(x))`: `x` may be `zoo`,
+where `sign` is `nan`, and `Q.finite(nan)` is left open (row V1). No
+check hit the backstop on the stream; one gate2 check did, with the
+answer unchanged.
 
 ## Speed
 

@@ -540,7 +540,7 @@ one-line rationale added here.
    "Answering"). Rationale: the unsat result is a proof that `A` entails
    `P`; only the raising on an inconsistent `A` that z3 cannot show is
    lost.
-7. Changed (#22): `re`, `im`, `conjugate`, `sign` at `+oo` and `-oo` are
+7. Changed (#24): `re`, `im`, `conjugate`, `sign` at `+oo` and `-oo` are
    their limits along the real axis (`re = +-oo`, `im = 0`, `conjugate =
    +-oo`, `sign = +-1`; special-values row V2). At the other kind the
    encoding states only what holds for every member: along `t*d` (row V2,
