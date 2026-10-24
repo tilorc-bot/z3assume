@@ -587,8 +587,31 @@ completeness only:
 Three of them (the fourth to sixth) were definite at fb92e31 too: #27 and
 #28 made their checks larger, and the 2,000,000 limit hid that. The case
 `n > 0` of the last one (decision 11) is lost in the form of
-tests/test_limits.py, `Q.zero(sign(...) - 1)`; the bench site's form,
-`Eq(sign(...), 1)`, is still True.
+tests/test_limits.py, `Q.zero(sign(...) - 1)`, which needs about
+1,130,000 steps; `Eq(sign(...), 1)` is still True at 1,000,000.
+
+The bench site found two more of these losses at 8cf915f (#31). Its
+adapter asks `Q.zero(lhs - rhs)` for a query `Eq(lhs, rhs)`, so it uses
+the larger form, and both were True at 2,000,000 and are `None` now,
+without a timeout. Both answers were right; a `None` is never wrong, and
+the limit stays at 1,000,000 because 2,000,000 tripled the bench
+timeouts (decision 12):
+
+- wester, `sign(k*x**n - k*y**n) = 1` under `x > y`, `y > 1/10`,
+  `x < 10`, `k > 0`, `0 < n < 10`, all real (True). This is the case
+  `n > 0` above in the site's form: `y > 0`, and `t -> t**n` increases on
+  `(0, oo)` for `n > 0`, so `x**n > y**n` and `k*(x**n - y**n) > 0`.
+  Asked as `Eq(sign(...), 1)` it is still True. Rewriting `Q.zero(t + c)`
+  for a number `c` as `Q.eq(t, -c)` would recover it; that is #34, not
+  done here.
+- simplipy, `tan(acos(Abs(x))) = Abs(tan(acos(x)))` for real `|x| <= 1`,
+  `cos(acos(|x|)) != 0`, `cos(acos(x)) != 0` (True), the `acos` twin of
+  the `asin` case above. `cos(acos(x)) = x`, so `x != 0`; for real `t` in
+  `[-1, 1]`, `t != 0`, `acos(t)` is in `[0, pi]` with sine
+  `sqrt(1 - t**2) >= 0`, so `tan(acos(t)) = sqrt(1 - t**2)/t`. The left
+  side is `sqrt(1 - x**2)/|x|`, and so is the absolute value of the right
+  side. It needs more than 1,000,000 steps in the site's form;
+  `Eq(...)` itself is `None` even at 8,000,000.
 
 ## Speed
 
