@@ -287,6 +287,20 @@ class _Raw:
         return self._new(_C.Z3_mk_pbeq(self.ref, n, arr, (ctypes.c_int * n)(*[1] * n), k))
 
 
+def _scoped(method):
+    """The raw nodes the method makes (``_Raw.tmp``) are dropped when it
+    returns, or raises, as the wrapper's temporaries die with its frame."""
+    def scoped(self, *args):
+        R = self._raw
+        mark = R.mark()
+        try:
+            return method(self, *args)
+        finally:
+            R.release(mark)
+    scoped.__name__, scoped.__doc__ = method.__name__, method.__doc__
+    return scoped
+
+
 class Encoder:
     """Collects the terms and axioms of one query."""
 
@@ -329,6 +343,7 @@ class Encoder:
     def _add_raw(self, a):
         self.axioms.append(self._raw.hold(a))
 
+    @_scoped
     def _shape(self, t: Term):
         """The kind is one of five; the basis Booleans are the numeric
         definitions unless the value is nan, the rules always; nan is no
@@ -339,7 +354,7 @@ class Encoder:
         stands for: the raw calls make its nodes in its order (Python's:
         the arguments of a call left to right, then the call; a node made
         again is the same node)."""
-        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        R, add = self._raw, self._add_raw
         T = t.p
         fin, pinf, ninf, cinf, nan, re, im, k, h, r, a = (T.fin, T.pinf, T.ninf, T.cinf, T.nan, T.re, T.im,
                                                           T.k, T.h, T.r, T.atoms)
@@ -388,7 +403,6 @@ class Encoder:
         lit = lambda p, s: a[p] if s else nots[p]  # noqa: E731
         for prem, concl in RULES:
             add(R.implies(R.and_(*[lit(p, s) for p, s in prem]), R.or_(*[lit(p, s) for p, s in concl])))
-        R.release(mark)
 
     def _non_integer(self, t: Term, noint):
         """A finite real non-integer (``noint``, the raw
@@ -448,14 +462,16 @@ class Encoder:
             start = len(self.axioms)
             self._node(t, Integer(1), None)
             one = self.axioms[start:]
-            del self.axioms[start:]
             # Implies(Not(b.nan), And(one)), raw as the axioms are; then
             # only it holds them
             R, mark = self._raw, self._raw.mark()
-            f = R.implies(R.not_(b.p.nan), R.and_(*one))
-            R.truncate(start)
-            self._add_raw(f)
-            R.release(mark)
+            try:
+                f = R.implies(R.not_(b.p.nan), R.and_(*one))
+                del self.axioms[start:]
+                R.truncate(start)
+                self._add_raw(f)
+            finally:
+                R.release(mark)
             return
         if isinstance(e, Integer):
             n = int(e)
@@ -570,8 +586,9 @@ class Encoder:
     # (as _shape's: the wrapper code in the comments, its nodes in its
     # order); x.p are the raw variables of the term x.
 
+    @_scoped
     def _sum(self, t: Term, args):
-        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        R, add = self._raw, self._add_raw
         T, xs = t.p, [x.p for x in args]
         allfin = R.and_(*[x.fin for x in xs])                     # And([x.fin for x in args])
         # Implies(allfin, And(t.fin, t.re == Sum([x.re ...]), t.im == Sum([x.im ...])))
@@ -592,7 +609,6 @@ class Encoder:
             rest = [y.fin for j, y in enumerate(xs) if j != i]
             add(R.implies(R.and_(x.cinf, *rest), T.cinf))         # Implies(And(x.cinf, *rest), t.cinf)
         self._closure(T, xs, allfin, lambda y: R.true())          # BoolVal(True)
-        R.release(mark)
 
     def _closure(self, T, xs, allfin, cancel):
         """Field closure of rationals and algebraic numbers among finite
@@ -610,8 +626,9 @@ class Encoder:
                     rest = [R.and_(y.atoms[p], cancel(y)) for j, y in enumerate(xs) if j != i]
                     add(R.implies(R.and_(allfin, T.atoms[p], *rest), x.atoms[p]))
 
+    @_scoped
     def _product(self, t: Term, args):
-        R, add, mark = self._raw, self._add_raw, self._raw.mark()
+        R, add = self._raw, self._add_raw
         T, xs = t.p, [x.p for x in args]
         allfin = R.and_(*[x.fin for x in xs])
         re, im = args[0].re, args[0].im
@@ -633,7 +650,6 @@ class Encoder:
         if len(var) == 1 and abs(c.p) == 1 and c.q > 1:
             # Implies(And(var[0].fin, t.atoms["integer"]), var[0].atoms["integer"])
             add(R.implies(R.and_(var[0].p.fin, T.atoms["integer"]), var[0].p.atoms["integer"]))
-        R.release(mark)
 
     def _fresh_mul(self, a, b, c, d):
         """(a + b*I)*(c + d*I) as two fresh reals."""
