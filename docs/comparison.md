@@ -485,6 +485,7 @@ Still "less" in this class: stream 12097 `Q.finite(sign(x))` under
 where `sign` is `nan`, and `Q.finite(nan)` is left open (row V1). No
 check hit the backstop on the stream; one gate2 check did, with the
 answer unchanged.
+
 The sums-with-an-infinity and hyperbolic-limits step (#26; design.md
 "Terms: `Add`" and decision 10) changes 17 stream answers, all from "less"
 to "agree" (None to False, as satassume); gate2 answers do not change and
