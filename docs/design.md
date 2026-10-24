@@ -493,7 +493,11 @@ answers keyed by `(P, A)` is kept, as satassume does; it cannot change an
 answer.
 
 One exception: z3 does not check `rlimit` everywhere (a nonlinear sat
-check was seen to overrun its rlimit by 68% and run for seconds), so each
+check was seen to overrun its rlimit by 68% and run for seconds), and a
+step is not a fixed amount of time: in the nonlinear solver one step can
+cost a hundred times what it costs elsewhere (#31: one Groebner basis call
+took 11 s and 550 MB inside a limit of 1,000,000 steps, and nlsat's
+polynomial work runs at about 200,000 steps a second). So each
 check also has a wall-clock backstop of 10 s. A check stopped by the
 backstop is `unknown`, so the answer is `None`, and whether a check near
 the backstop finishes depends on the machine and its load: such answers
@@ -504,7 +508,7 @@ caused is not memoized, and the stream comparison (`tools/`) reports the
 count, so a query that hits it is visible and can be fixed in the encoding
 (by a smaller problem, not a larger limit).
 
-The rlimit of a check is 2,000,000 (`RLIMIT`). When the default solver
+The rlimit of a check is 1,000,000 (`RLIMIT`, decision 12). When the default solver
 runs out of it (not when the backstop fires), the check is tried once
 more with the tactics `simplify`, `propagate-values`, `solve-eqs`, `smt`
 and an rlimit of 250,000 (`FALLBACK`, `FALLBACK_RLIMIT`). These tactics
@@ -632,7 +636,8 @@ one-line rationale added here.
    formulas through `exp` give, except for `tanh` and `coth`, whose
    quotient `(e**t - e**-t)/(e**t + e**-t)` is `oo/oo` at `+oo`: the
    function is the limit, not the formula's expression at the point.
-11. New (#29): rlimit 2,000,000 per check, and a fallback (plain
+11. New (#29; the rlimit is 1,000,000 again since decision 12): rlimit
+   2,000,000 per check, and a fallback (plain
    preprocessing and the smt core, rlimit 250,000) when the default
    solver runs out of it. Rationale: the default
    solver's nonlinear search depends on the order in which terms were
@@ -648,3 +653,20 @@ one-line rationale added here.
    in about 51,000. The second needs 1,130,000 steps (990,000
    before #26). The limits are steps, not seconds, so answers stay
    deterministic. The cost is measured in the #29 PR description.
+12. New (#31): the rlimit is 1,000,000 again; the fallback of decision 11
+   stays. Rationale: an undecided check runs to its limit, so the 2,000,000
+   of decision 11 doubled the cost of every `None` answer, and because a
+   step in the nonlinear solver can take far longer than elsewhere, it
+   pushed many of them past the 10 s backstop: on the bench site's 553
+   public queries, 42 took over 10 s at f2d67e8 against 19 with this
+   limit (21 at fb92e31, before #27-#29), and the backstop's answers
+   depend on the machine. Smaller problems were tried first and rejected:
+   turning off z3's Groebner bases (the step that ran 11 s inside one
+   rlimit) or its substitution of fixed values loses the Tribonacci
+   identity of `tests/test_constants.py`, and any such parameter moves
+   the search of other hard checks in both directions, while the limit
+   moves them all one way. The cost is seven definite answers of the
+   bench site's public suites (all right, now `None`, listed in
+   docs/comparison.md) and the second case of decision 11, which needs
+   1,130,000 steps (its test is an expected failure); the stream and
+   gate2 answers do not change.

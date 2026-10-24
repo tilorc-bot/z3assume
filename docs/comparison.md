@@ -166,6 +166,7 @@ move to "agree", or to "more" with an argument given here.
 | inverse functions off the real axis (#27) | 1 | 4 | 0 | none |
 | rlimit 2,000,000 and a fallback check (#29) | 1 | 4 | 0 | 1 stream |
 | the converse integer axiom for sums (#28) | 1 | 4 | 0 | none |
+| rlimit 1,000,000 again (#31) | 1 | 4 | 0 | none |
 
 The rational-coefficient step (#16, fixes #12) moves 50 stream queries (7 distinct,
 `Q.integer(k/2 - 1/2)`, `k/2 + 1/2`, `k/2 + 3/2`, `-k/2 - 3/2`, `1/2 - k/2`
@@ -529,7 +530,8 @@ finite values each is a right inverse of a function that maps the reals
 into the reals and `zoo`.
 
 The rlimit step (#29, decision 11) changes one answer, by the larger
-rlimit (the default solver proves it in about 1,050,000 steps): stream 12208,
+rlimit (the default solver proved it in about 1,050,000 steps; since #28
+it needs fewer than 1,000,000, so decision 12 keeps it): stream 12208,
 `Q.nonnegative(sign(x)*sign(conjugate(x)))` under `Q.negative(re(x))`,
 goes from None to True, and satassume answers None. The argument:
 `re(x)` is a finite negative real. Every infinite `x` has `re(x)` in
@@ -547,6 +549,46 @@ rotating rounds, medians: on a2428ca (after #29) gate2 goes from 33.41 s
 to 32.17 s (-4%) and every 8th stream query from 35.40 s to 31.78 s
 (-10%); on fb92e31 (before #29) it was 31.75 s to 29.96 s and 32.59 s to
 30.72 s (means, about -5%).
+
+The rlimit goes back to 1,000,000 (#31, design.md decision 12) and
+changes no answer on either corpus (stream 116.5 s, gate2 18.9 s, against
+119.6 s and 20.7 s at f2d67e8, six local jobs). It is measured on the
+bench site's 553 public queries instead (one fresh process per query, four
+at a time, local): 42 took over 10 s at f2d67e8, 19 do now, 21 did at
+fb92e31; the total time goes from 1,081 s to 570 s. Nothing contradicts,
+and seven answers become `None`. Each was right, so this is a loss of
+completeness only:
+
+- simplipy, `cos(atan(tan(x))) = Abs(cos(x))` for imaginary `x = i*y`
+  (True): `tan(i*y) = i*tanh(y)` with `|tanh(y)| < 1`, so
+  `atan(i*tanh(y)) = i*y` and both sides are `cosh(y) > 0`.
+- simplipy, `cosh(asinh(tan(x))) = Abs(1/cos(x))` for imaginary `x = i*y`
+  (True): `asinh(i*tanh(y)) = i*asin(tanh(y))`, and
+  `cos(asin(tanh(y))) = sqrt(1 - tanh(y)**2) = 1/cosh(y) = |1/cos(i*y)|`.
+- simplipy, `tan(asin(Abs(x))) = Abs(tan(asin(x)))` for real `|x| < 1`
+  (True): `tan(asin(t)) = t/sqrt(1 - t**2)` is odd and nonnegative for
+  `t >= 0`.
+- simplipy, `tanh(asinh(Abs(x))) = cos(atan(1/x))` for imaginary
+  nonzero `x = i*y`, `1/x != +-I` (False): the left side is
+  `|y|/sqrt(1 + y**2)`, in `(0, 1)`. For `|y| > 1`,
+  `atan(-i/y) = -i*atanh(1/y)` and the right side is `cosh(atanh(1/y)) >=
+  1`; for `|y| < 1`, `atanh(1/y) = r +- i*pi/2` with `r` real and nonzero,
+  and the right side `cos(+-pi/2 - i*r)` is `+-i*sinh(r)`, not real.
+- wester, `sqrt(-2 + sqrt(-5))*sqrt(-2 - sqrt(-5)) = 3` (True): the two
+  radicands are conjugate and off the negative real axis, so the
+  principal roots are conjugate and the product is `|-2 + i*sqrt(5)| = 3`.
+- wester, `Abs(1/(a + I/a + I*b)) = 1/sqrt(a**2 + (1/a + b)**2)` for real
+  `a != 0`, `b` (True): `a + i*(1/a + b)` has that modulus, which is
+  positive, and `|1/w| = 1/|w|`.
+- wester, `sign(k*x**n - k*y**n) = 1` under `x > y > 0`, `k > 0`, `n <= 0`
+  (False): for `n < 0`, `t -> t**n` decreases on `(0, oo)`, so the sign
+  is -1; for `n = 0` the difference is 0.
+
+Three of them (the fourth to sixth) were definite at fb92e31 too: #27 and
+#28 made their checks larger, and the 2,000,000 limit hid that. The case
+`n > 0` of the last one (decision 11) is lost in the form of
+tests/test_limits.py, `Q.zero(sign(...) - 1)`; the bench site's form,
+`Eq(sign(...), 1)`, is still True.
 
 ## Speed
 

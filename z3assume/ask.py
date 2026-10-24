@@ -11,8 +11,8 @@ from sympy.core.function import AppliedUndef
 from .encode import Encoder, Unsupported
 
 #: z3's resource limit per check: a count of internal steps, so an answer
-#: does not depend on the machine's speed or load.
-RLIMIT = 2_000_000
+#: does not depend on the machine's speed or load (decision 12, #31).
+RLIMIT = 1_000_000
 #: Wall-clock backstop (ms): z3 checks the rlimit only at some points and
 #: can overrun it on nonlinear integer problems.  When it fires the check
 #: is unknown, so the answer is None; it is counted in ``last["timeout"]``.
