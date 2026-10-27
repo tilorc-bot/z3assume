@@ -687,3 +687,17 @@ one-line rationale added here.
    gate2 answers do not change, and on the bench site's 553 public
    queries one more is
    decided (True) and none is lost.
+14. New (#34): `Q.zero(t + c)` for a rational `c` stays the predicate of
+   the term `t + c`; it is not rewritten as `Q.eq(t, -c)`. Rationale: the
+   rewrite saves the term, but its only use was the wester case of
+   tests/test_limits.py (`test_n6_power_increasing`, an expected failure),
+   and that is an rlimit-edge effect, not a gain in what the encoding
+   says. With the plain `Q.eq(t, -c)` the case is True, but `Q.zero`
+   becomes open at a nan `t`, against the convention that every predicate
+   is False there, and the False of tests/test_slice.py for
+   `Q.zero(im(y) - 1)` with `y = oo + I` is lost. The exact forms (`t`
+   finite with value `-c`, or `Q.eq` with `t` not nan) keep that False,
+   but they leave n6 `None` at 1,000,000 steps (True at 1,500,000), and
+   in the bench site's form (`Q.zero(lhs - rhs)`, 552 public queries)
+   they lose the False of its `n < 0` twin and gain nothing. On the
+   stream and gate2 no form changes an answer.
