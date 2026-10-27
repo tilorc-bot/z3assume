@@ -8,7 +8,7 @@ from fractions import Fraction
 import mpmath
 import pytest
 from sympy import (Eq, I, Integer, Q, Rational, S, acos, acosh, acot, acoth, asin, asinh, atan, atanh, cos,
-                   cosh, cot, coth, csc, csch, exp, im, pi, re, sec, sech, sin, sinh, symbols, tan, tanh)
+                   cosh, cot, coth, csc, csch, exp, im, log, pi, re, sec, sech, sin, sinh, symbols, tan, tanh)
 
 from z3assume import ask
 from z3assume.bounds import cosh_sinh_bounds, sin_cos_bounds
@@ -204,6 +204,23 @@ CASES = [
     (Q.positive(sin(x)), Q.real(x) & Q.gt(x, 7) & Q.lt(x, 9), True, "(2*pi, 3*pi), a literal > 3"),
     (Q.negative(sin(x + y)), Q.real(x) & Q.real(y) & Q.gt(x, 3) & Q.lt(x, pi) & Q.gt(y, 3) & Q.lt(y, pi),
      None, "true (x + y in (6, 2*pi)), but no number beyond pi: no far signs (decision 19)"),
+    # decision 21: congruence and parity (K2) between terms whose arguments
+    # have the same skeleton
+    (Q.zero(cos(abs(y)) - cos(y)), Q.real(y), True, "|y| = +-y, cos is even"),
+    (Q.zero(sin(abs(y)) - sin(y)), Q.real(y), None, "y < 0: sin(|y|) = -sin(y) != sin(y) for y = -1"),
+    (Q.zero(sinh(-abs(y)) + abs(sinh(y))), Q.real(y), True, "sinh is odd and keeps the sign"),
+    (Q.zero(cosh(abs(y)) - cosh(y)), Q.real(y), True, "cosh is even"),
+    (Q.zero(atan(-abs(y)) + abs(atan(y))), Q.real(y), True, "atan is odd on R and keeps the sign"),
+    (Q.zero(asin(abs(y) / 2) - abs(asin(y / 2))), Q.real(y) & Q.le(abs(y), 2), True,
+     "asin is odd on [-1, 1] and keeps the sign"),
+    (Q.zero(asin(abs(y) / 2) - asin(y / 2)), Q.real(y) & Q.le(abs(y), 2), None, "y = -1: asin(-1/2) < 0"),
+    (Q.zero(sin(log(1 / x)) + sin(log(x))), Q.complex(x) & Q.gt(re(x), 0), True,
+     "log(1/x) = -log(x) off the negative axis (decision 20), sin is odd"),
+    (Q.zero(cos(log(1 / x)) - cos(log(x))), Q.real(x) & Q.nonzero(x), None,
+     "x = -2, a = log 2: cos(-a + I*pi) = cos(a - I*pi) is the conjugate of cos(a + I*pi), "
+     "and its imaginary part sin(a)*sinh(pi) is not 0"),
+    (Q.zero(cos(atanh(abs(y) / 3)) - cos(atanh(y / 3))), Q.real(y) & Q.lt(abs(y), 3), True,
+     "atanh is odd on (-1, 1), cos is even"),
 ]
 
 

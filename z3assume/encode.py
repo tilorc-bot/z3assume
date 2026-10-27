@@ -351,6 +351,27 @@ def _scoped(method):
     return scoped
 
 
+def _skeleton(e):
+    """``e`` up to ``Abs``, signs and reciprocals, at every level: the
+    arguments of two terms that ``Encoder._congruence`` links (decision
+    21).  Only a filter: it decides which facts are stated, not their
+    truth."""
+    if isinstance(e, Abs):
+        return _skeleton(e.args[0])
+    if isinstance(e, Pow) and e.exp == -1:
+        return _skeleton(e.base)
+    if isinstance(e, Mul):
+        c, r = e.as_coeff_Mul()
+        if c.is_negative:
+            return _skeleton(Mul(-c, r)) if c != -1 else _skeleton(r)
+    if not e.args:
+        return e
+    args = [_skeleton(a) for a in e.args]
+    if isinstance(e, (Add, Mul)):
+        args.sort(key=repr)
+    return (type(e).__name__, *args)
+
+
 class Encoder:
     """Collects the terms and axioms of one query."""
 
@@ -364,6 +385,8 @@ class Encoder:
         self._congruent = set()
         self._pairs = []
         self._trig = {}
+        #: per family, the congruence links not stated yet (``_congruence``)
+        self._links = {}
         self._lin = {}
         self._n = 0
         #: > 0 while ``_principal`` builds the terms of ``exp(x*log(b))``
@@ -1464,6 +1487,9 @@ class Encoder:
         # Implies(And(z.fin, z.im == 0), And(t.re == m, t.im == 0))
         add(R.implies(R.and_(Z.fin, eq(Z.im, num(0))), R.and_(eq(T.re, M), eq(T.im, num(0)))))
         self._exp_pair(z.fin, z.re, m)
+        er, ei = self._uf("exp_re", 2), self._uf("exp_im", 2)
+        self._congruence("exp", z.expr, lambda: self._add(z3.Implies(z.fin, z3.And(
+            t.re == er(z.re, z.im), t.im == ei(z.re, z.im)))))
         pi = self.term(S.Pi).p.re
         b, re, im = Z.im, T.re, T.im
         b2 = lambda: R.mul(num(2), b)                                       # noqa: E731 (2 * b)
@@ -1687,6 +1713,32 @@ class Encoder:
             rest.remove(S.ImaginaryUnit)
         return self.term(Mul(*rest))
 
+    def _uf(self, name: str, arity: int):
+        R = z3.RealSort(self.ctx)
+        return z3.Function(name, *([R] * arity), R)
+
+    def _congruence(self, family, arg, link):
+        """K2 (decision 21): ``link()`` states that a term of ``family`` is
+        an uninterpreted function of its argument ``arg`` (a SymPy
+        expression), so that z3's congruence closure gives equal values
+        for equal arguments (and, with a ground instance at the negated
+        argument, the reflection of an even or odd function).  Only terms
+        whose arguments have the same ``_skeleton`` are linked, and only
+        once there are two of them: a term with no such partner gains
+        little and costs steps (leaving facts out is sound).  The terms
+        of a power (``_internal``) get no links."""
+        if self._internal:
+            return
+        key = (family, _skeleton(arg))
+        links = self._links.get(key)
+        if links is None:
+            self._links[key] = [link]
+            return
+        for f in links:
+            f()
+        self._links[key] = []
+        link()
+
     def _circ(self, z: Term, part: str):
         """``(cos u, sin u)`` for the real ``u`` = that part of ``z``, as two
         fresh reals ``C``, ``S``, valid when ``z`` is finite.  The facts:
@@ -1726,6 +1778,9 @@ class Encoder:
             z3.Implies(z3.Or(u == pi, u == -pi), z3.And(C == -1, S_ == 0)))))
         if self.far and not self._internal:
             self._add(z3.Implies(z.fin, self._far_signs(u, pi, C, S_, 1)))
+        cf, sf = self._uf("cos_f", 1), self._uf("sin_f", 1)
+        self._congruence(("circ", part), z.expr, lambda: self._add(z3.Implies(z.fin, z3.And(
+            C == cf(u), S_ == sf(u), C == cf(-u), S_ == -sf(-u)))))
         c = self._pi_multiple(z, part)
         if c is not None:
             ok = z3.And(z.fin, c.real())
@@ -1802,6 +1857,9 @@ class Encoder:
             z3.Implies(u >= 0, K >= u), z3.Implies(u <= 0, K <= u),
             z3.Implies(u == 0, z3.And(H == 1, K == 0)))))
         self._exp_pair(z.fin, u, H + K)
+        hf, kf = self._uf("cosh_f", 1), self._uf("sinh_f", 1)
+        self._congruence(("hyp", part), z.expr, lambda: self._add(z3.Implies(z.fin, z3.And(
+            H == hf(u), K == kf(u), H == hf(-u), K == -kf(-u)))))
         if r is not None and r != 0:
             b = cosh_sinh_bounds(r)
             if b is not None:
@@ -2024,9 +2082,29 @@ class Encoder:
             self._add(z3.Implies(x.fin, z3.And(2 * w >= -pi, 2 * w <= pi)))
         elif f is atan:
             self._add(z3.Implies(z3.And(x.fin, t.fin), z3.And(2 * w >= -pi, 2 * w <= pi)))
+        self._inverse_congruence(t, f, x, inside)
         g = x.expr
         if FORWARD.get(f) is type(g) and len(g.args) == 1:
             self._composition(t, f, self.term(g.args[0]))
+
+    def _inverse_congruence(self, t: Term, f, x: Term, inside):
+        """K2 (decision 21) for the inverse functions: at a finite ``x`` the
+        finiteness and, when finite, the value of ``f(x)`` are functions of
+        ``(re x, im x)``; ``asin``, ``atan``, ``asinh``, ``atanh``,
+        ``acoth`` are odd on their real domains (``inside``)."""
+        n = f.__name__
+        fr, fi = self._uf(f"{n}_re", 2), self._uf(f"{n}_im", 2)
+        ff = z3.Function(f"{n}_fin", z3.RealSort(self.ctx), z3.RealSort(self.ctx), z3.BoolSort(self.ctx))
+        zero = z3.RealVal(0, self.ctx)
+
+        def link():
+            xr, xi = x.re, x.im
+            self._add(z3.Implies(x.fin, t.fin == ff(xr, xi)),
+                      z3.Implies(z3.And(x.fin, t.fin), z3.And(t.re == fr(xr, xi), t.im == fi(xr, xi))))
+            if f in (asin, atan, asinh, atanh, acoth):
+                self._add(z3.Implies(z3.And(x.real(), inside, t.fin),
+                                     z3.And(ff(-xr, zero), fr(-xr, zero) == -t.re, fi(-xr, zero) == 0)))
+        self._congruence(n, x.expr, link)
 
     def _composition(self, t: Term, f, v: Term):
         """``t = f(g(v))`` with ``g`` the forward function of ``f``

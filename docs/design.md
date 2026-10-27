@@ -889,3 +889,46 @@ one-line rationale added here.
    `exp(y)**(1/3)` doubled its steps). Measured: no gate2, every8 or
    stream answer changes; 12 public queries are decided
    (docs/comparison.md).
+21. New (E): congruence and parity of the transcendental terms (K2 of
+   #44). The values of `cos`, `sin` (`_circ`), `cosh`, `sinh` (`_hyp`)
+   of a real part `u`, of `exp(z)` (re and im as a function of `re z`,
+   `im z`), and of each inverse function `f(x)` (finiteness, re and im
+   as functions of `re x`, `im x`) are tied to z3 uninterpreted
+   functions: `C = cos_f(u)`, `S = sin_f(u)`, and so on, under the
+   finiteness of the argument. Then z3's congruence closure gives equal
+   values to equal arguments, which before held only for arguments that
+   were the same SymPy expression (`asin(|x|)` and `asin(x)` had
+   unrelated values even where `|x| = x`). Parity is one ground
+   instance per term at the negated argument: `cos_f(-u) = C`,
+   `sin_f(-u) = -S`, `cosh_f(-u) = H`, `sinh_f(-u) = -K`, and for
+   `asin`, `atan`, `asinh`, `atanh`, `acoth` with a real `x` in their
+   real domain, `f(-x)` is finite and real with the value `-f(x)`.
+   Rationale: every one of these is a function, and the uninterpreted
+   function is interpreted by the true function (`cos_f = cos`,
+   `asin_re(a, b) = re(asin(a + b*I))`, ...), which satisfies every
+   link, so the links add no model the true values do not have. The
+   parity facts are the identities `cos(-u) = cos u`, `sin(-u) = -sin u`
+   (likewise cosh, sinh) and the oddness of those inverse functions on
+   the real line (the principal values there are the real inverse
+   functions, which are odd); off the real line and on the cuts parity
+   is not stated, as the branch-cut conventions (and `acot(0) = pi/2`,
+   `acos(-x) = pi - acos(x)`) break it. Cost: pairwise ground axioms
+   would cost every query with two trig terms; with the functions, z3
+   relates two arguments only when its model makes them equal (model
+   based theory combination), and a term adds two to four links,
+   linear in the number of terms. That alone still cost steps where
+   nothing was gained (two public queries near the rlimit were lost,
+   and one with `cos(n*acos(x))` for three `n` doubled its time), so
+   the links are stated only between terms of one family (and part, re
+   or im) whose SymPy arguments have the same skeleton: the expression
+   with `Abs`, negative signs and reciprocals (`Pow(e, -1)`) removed at
+   every level (`_skeleton`; `|x|`, `x` and `-|x|` agree, as do
+   `log(1/x)` and `-log(x)`, but `1008*a` and `1006*a` do not). A term
+   with no partner gets no link, and the terms that `_pow` builds get
+   none (`_internal`, as in decisions 19 and 20: with them, `x**n` for
+   `0 < n < 10` in `tests/test_limits.py` went over the rlimit). The
+   filter only decides which true facts are stated; leaving links out
+   is sound, and the price is that arguments equal for other reasons
+   (`x + I*y` and `x` for real `y = 0`, `x` and `y` under `x = y`) get
+   unrelated values as before. Not done: periodicity (`u = u' + 2*pi`),
+   which needs an integer witness.
