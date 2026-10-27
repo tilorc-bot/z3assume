@@ -781,6 +781,36 @@ Pinned and interleaved (one core, `--jobs 1`, 3 rounds, medians), main
 every8's 2029 have a number beyond `pi` and so get the signs beyond
 `pi` (decision 19).
 
+Decision 21 (congruence and parity of the transcendental terms between
+arguments with the same skeleton) changes no answer on gate2, every8 or
+the stream, and no CONTRADICT appears: the agree, more and less counts
+are those of decisions 19 and 20. Of the 553 public queries in the
+site's form, none is lost and 13 are decided (all True, all matching
+the label, none on a contingent case); 4 take over 10 s, as before, and
+no query's time moves by more than noise. By class:
+
+- **An odd function that keeps the sign, at `|x|` and `-|x|`** (real
+  `x`; `asin` for `|x| <= 1`, `atanh` for `|x| < 1`, `asinh`, `sinh`;
+  `f(|x|) = |f(x)|` or `f(-|x|) = -|f(x)|`; 6 True). `|x|` is `x` or
+  `-x`; `f` is odd on its real domain (the principal values there are
+  the real inverse functions, decision 21) and has the sign of its
+  argument, so `f(|x|) = |f(x)|`, and `f(-|x|) = -f(|x|)`.
+- **`sin` and `tan` at `|g|` for a small real `g`** (real `x`, `g` one
+  of `cos x`, `sin x`, `tanh x`, with `|g| <= 1`; `sin(|g|) = |sin g|`,
+  `tan(|cos x|) = |tan(cos x)|`; 4 True). `sin` and `tan` are odd, and
+  on `[-1, 1]` (inside `(-pi/2, pi/2)`) they have the sign of their
+  argument, so `f(|g|) = |f(g)|`.
+- **`cos` and `sin` of `log(1/x)`** (complex `x != 0` with `re x >= 0`;
+  `cos(log(1/x)) = cos(log x)`, `sin(log(1/x)) = -sin(log x)`, also
+  written `sin(-log x)`; 3 True). `x` is not a negative real, so
+  `log(1/x) = -log x` (decision 20), and `cos` is even, `sin` odd.
+
+Pinned and interleaved (one core, `--jobs 1`, 3 rounds, medians), main
+51904ef against this change: gate2 29.93 s -> 29.59 s (-1.1%), every8
+30.99 s -> 29.85 s (-3.7%). A first version that linked every two terms
+of a family (no skeleton filter) measured 30.01 s -> 29.88 s and 30.80 s
+-> 30.12 s, but lost two public answers near the rlimit (decision 21).
+
 ## Speed
 
 z3assume is about 50 to 60 times slower than satassume. The latest
