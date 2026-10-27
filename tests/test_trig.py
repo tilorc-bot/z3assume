@@ -8,7 +8,7 @@ from fractions import Fraction
 import mpmath
 import pytest
 from sympy import (Eq, I, Integer, Q, Rational, S, acos, acosh, acot, acoth, asin, asinh, atan, atanh, cos,
-                   cosh, cot, coth, csc, csch, exp, pi, sec, sech, sin, sinh, symbols, tan, tanh)
+                   cosh, cot, coth, csc, csch, exp, pi, re, sec, sech, sin, sinh, symbols, tan, tanh)
 
 from z3assume import ask
 from z3assume.bounds import cosh_sinh_bounds, sin_cos_bounds
@@ -134,6 +134,40 @@ CASES = [
     (Q.positive(acoth(x)), Q.positive(x - 1), True, "(1, oo) -> (0, oo)"),
     (Q.real(atan(x)), Q.infinite(x), None, "atan(oo) = pi/2: a limit no row states"),
     (Q.real(asin(S.NaN, evaluate=False)), True, False, "N1"),
+    # decision 18: the real part of asin, atan at every finite point
+    (Q.zero(asin(x) - y), Q.finite(x) & Q.gt(re(y), 2), False, "|re asin| <= pi/2, cuts included"),
+    (Q.zero(atan(x) - y), Q.finite(x) & Q.gt(re(y), 2), False, "|re atan| <= pi/2 where finite"),
+    (Q.zero(atan(x) - y), Q.finite(x) & Q.gt(re(y), 1), None, "re atan(I*coth(1)) = pi/2 > 1"),
+    (Q.zero(asin(x) - y), Q.finite(x) & Q.ge(re(y), pi / 2), None, "asin(2) = pi/2 - 1.3169...*I"),
+    # decision 18: inverse(forward(v)) = v on the principal strip
+    (Q.zero(asin(sin(x)) - x), Q.real(x) & Q.ge(x, -pi / 2) & Q.le(x, pi / 2), True, "closed real interval"),
+    (Q.zero(asin(sin(x)) - x), Q.real(x) & Q.ge(x, -2) & Q.le(x, 2), None, "asin(sin 2) = pi - 2"),
+    (Q.zero(asin(sin(x)) - x), Q.real(x) & Q.gt(x, pi / 2) & Q.lt(x, 2), False, "asin is in [-pi/2, pi/2]"),
+    (Q.zero(asin(sin(x)) - x), Q.finite(x) & Q.lt(abs(re(x)), 1), True, "open strip |re| < pi/2"),
+    (Q.zero(asin(sin(x)) - x), Q.imaginary(x), True, "re x = 0 is on the strip"),
+    (Q.zero(asin(sin(x)) - x), Q.finite(x) & Q.gt(re(x), 1), None, "true up to pi/2, false beyond"),
+    (Q.zero(asin(sin(x)) - x), Q.lt(abs(re(x)), 1), None, "x = I*oo: re 0, sin free"),
+    (Q.zero(asin(sin(atan(y) / 2)) - atan(y) / 2), Q.real(y), True, "atan(y)/2 is in (-pi/4, pi/4)"),
+    (Q.zero(atan(tan(x)) - x), Q.finite(x) & Q.gt(re(x), -1) & Q.lt(re(x), 1), True, "open strip"),
+    (Q.zero(atan(tan(x)) - x), Q.real(x), None, "atan(tan 2) = 2 - pi"),
+    (Q.zero(atan(tan(x)) - x), Q.finite(x) & ~Q.real(x) & Q.gt(re(x), 2), False, "|re atan| <= pi/2 < 2"),
+    (Q.zero(atan(tan(x)) - x), Q.finite(x) & Q.gt(re(x), 2), None, "tan(3*pi/2) = zoo, atan(zoo) is free"),
+    (Q.zero(atan(tan(x)) - x), Q.finite(x) & Q.eq(re(x), pi / 2) & ~Q.real(x), None,
+     "tan(pi/2 + I*b) = I*coth(b) is on the cut: the side is a convention"),
+    (Q.zero(acos(cos(x)) - x), Q.finite(x) & Q.gt(re(x), 0) & Q.lt(re(x), 3), True, "strip 0 < re < pi"),
+    (Q.zero(acos(cos(x)) - x), Q.finite(x) & Q.gt(re(x), 0) & Q.lt(re(x), 4), None, "acos(cos 4) = 2*pi - 4"),
+    (Q.zero(acos(cos(x)) - abs(x)), Q.real(x) & Q.ge(x, -pi) & Q.le(x, pi), True, "cos x = cos|x|"),
+    (Q.zero(acos(cos(x)) + x), Q.real(x) & Q.ge(x, -pi) & Q.le(x, 0), True, "-x in [0, pi]"),
+    (Q.zero(acos(cos(x)) - abs(x)), Q.real(x) & Q.le(x, 4), None, "acos(cos 4) = 2*pi - 4"),
+    (Q.rational(acos(cos(x))), Q.rational(x) & Q.gt(x, -3) & Q.lt(x, 0), True, "-x"),
+    (Q.zero(asinh(sinh(x)) - x), Q.real(x), True, "sinh is a bijection of R"),
+    (Q.zero(asinh(sinh(x)) - x), Q.imaginary(x), None, "asinh(sinh(4*I)) = (pi - 4)*I"),
+    (Q.zero(atanh(tanh(x)) - x), Q.real(x), True, "tanh: R -> (-1, 1), a bijection"),
+    (Q.zero(atanh(tanh(x)) - x), Q.extended_real(x), None, "x = oo: atanh(1) = oo, free"),
+    (Q.zero(acosh(cosh(x)) - abs(x)), Q.real(x), True, "cosh x = cosh|x|"),
+    (Q.zero(acosh(cosh(x)) - x), Q.real(x), None, "x < 0"),
+    (Q.zero(acosh(cosh(x)) - x), Q.negative(x), False, "|x| = -x != x"),
+    (Q.integer(acosh(cosh(x))), Q.integer(x), True, "|k|"),
     # decision 10: the hyperbolic functions at +-oo are their limits
     (Q.zero(coth(x)), Q.gt(x, 0), False, "coth > 1 on (0, oo), coth(oo) = 1"),
     (Q.positive(coth(x)), Q.ge(x, 1), True, "coth > 1 on (0, oo), coth(oo) = 1"),

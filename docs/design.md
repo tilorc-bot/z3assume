@@ -376,8 +376,25 @@ difference, harmless while non-commutative input is out of scope).
   for `asin`, `acos`, `atanh`; `x < 1` for `acosh`; `|x| < 1` for
   `acoth`) `w` is not real. `asin`, `acos`, `asinh`, `acosh` of a finite
   value are finite. `nan` gives `nan`; infinities leave the value free
-  (`atan(oo) = pi/2` is a limit no row states). `asec`, `acsc`, `asech`,
-  `acsch` stay opaque.
+  (`atan(oo) = pi/2` is a limit no row states). At every finite point
+  (the cuts included) `|re asin x| <= pi/2`, and `|re atan x| <= pi/2`
+  where `atan x` is finite (not at `+-I`). An inverse of its own forward
+  function undoes it on the principal strip, and nothing is said outside
+  it (decision 18): `asin(sin v) = v` and `atan(tan v) = v` for
+  `|re v| < pi/2`, `acos(cos v) = v` for `0 < re v < pi`; on the reals
+  `asin(sin x) = x` on `[-pi/2, pi/2]`, `acos(cos x) = |x|` on
+  `[-pi, pi]`, `asinh(sinh x) = x`, `atanh(tanh x) = x`,
+  `acosh(cosh x) = |x|`. `asec`, `acsc`, `asech`, `acsch` stay opaque.
+- `Piecewise((v1, c1), (v2, c2), ...)` (decision 17): the value of the
+  first branch whose condition holds, branch by branch as an `If` chain
+  over the kind, the parts and the predicates of the branch values. A
+  condition of `True`, `False`, the relations and the connectives is
+  encoded as a proposition (as in the query); an order relation between
+  values that are not both extended real has no truth value (SymPy raises
+  `TypeError`), so where one is met before a branch is selected the value
+  is free; any other condition is a free Boolean. Where no condition
+  holds (SymPy's `nan` without a `True` branch) the value is free, as an
+  opaque term's.
 - `floor`, `ceiling`, `frac` (issue #18). SymPy's definition for a
   complex argument rounds each part (the `floor` and `ceiling`
   docstrings: "taking the floor of the real and imaginary parts
@@ -755,3 +772,63 @@ one-line rationale added here.
    every eighth stream query take the same time (pinned pareto1 core,
    three rotating rounds: medians 34.55 s and 34.21 s before, 33.79 s and
    34.33 s after, under other load).
+17. New (E): `Piecewise((v1, c1), (v2, c2), ...)` is the value of the
+   first branch whose condition holds, as an `If` chain: under "`c1`,
+   ..., `c(i-1)` defined and false, `ci` defined and true" the term has
+   the kind, the parts and the predicates (all but `polar`) of `vi`; where
+   no branch is selected nothing is said, so the value is as free as the
+   opaque term it was. Conditions of relations and connectives are
+   encoded as propositions; an order relation is "defined" only between
+   extended reals; anything else is a fresh Boolean. Rationale: this is
+   the definition of `Piecewise` (SymPy's docstring: "The conds are
+   evaluated in turn returning the first that is True"), not an
+   evaluation result. It is exact: at a point where the conditions decide, the value
+   is the selected branch's; where a condition is left open by the
+   encoding (`Eq` at two other infinities or a nan, a condition z3assume
+   does not encode) the open Boolean is true or false there, and either
+   way the branch it picks is the one `Piecewise` takes for that truth
+   value, so no value the term can have is excluded. An order relation
+   off the extended reals is not false but meaningless (`Piecewise((1, x
+   < 0), (2, True))` at `x = I` raises `TypeError` in SymPy), so no
+   branch is selected there; and SymPy's `nan` where no condition holds
+   is a convention for "undefined", which is left free like `nan**0`
+   (decision 3). Each branch value's own axioms are facts about that
+   value at every point, whichever branch is selected, so they hold
+   unconditionally. The point is `real_root`: SymPy evaluates
+   `real_root(x, n)` for a symbol to `Piecewise((Abs(x)**(1/n)*sign(x),
+   Eq(im(x), 0)), (x**(1/n), True))`, and the query decides the first
+   condition from the assumptions. Measured (with decision 18): no
+   gate2 answer changes; 24 stream queries go from `None` to False (a
+   `max`-like `Piecewise` with predicate conditions is one of its finite
+   branches or `nan`, never infinite; docs/comparison.md); of the bench
+   site's 553 public queries 26 more are decided (12 by this decision,
+   all right, none on a contingent case) and none is lost.
+18. New (E): an inverse function of its own forward function undoes it
+   on the principal strip: `asin(sin v) = v` and `atan(tan v) = v` for
+   `|re v| < pi/2`, `acos(cos v) = v` for `0 < re v < pi`, and on the
+   reals `asin(sin x) = x` on `[-pi/2, pi/2]`, `acos(cos x) = |x|` on
+   `[-pi, pi]`, `asinh(sinh x) = x`, `atanh(tanh x) = x`,
+   `acosh(cosh x) = |x|`; outside these sets nothing is said. With them,
+   `|re asin x| <= pi/2` at every finite `x` and `|re atan x| <= pi/2`
+   where `atan x` is finite. Rationale: each is a theorem about the
+   principal branches, argued in `encode.py` (`_composition`): on the
+   open strips the forward function is injective and its values avoid
+   the inverse's cuts (`sin v` is real only for real `v` there, `tan v`
+   is finite and on the imaginary axis only as `I*tanh b`), and off its
+   cuts the inverse takes values on the open strip (`asin x = -I*log q`
+   with `re q > 0`; `re atan x` is half the angle at 0 of the triangle
+   0, `1 + I*x`, `1 - I*x`), so the value with `f(w) = x` is `v`
+   (`acos = pi/2 - asin` off the cuts). The closed bounds include the
+   cuts, whichever side SymPy takes there (`asin(2)` has `re = pi/2`,
+   `atan(2*I)` has `re = pi/2`), because the values on a cut are limits
+   from one side of values on the open strip. Only open strips are used
+   for complex arguments and closed intervals only on the reals, where
+   the endpoints are the real inverse's (`asin(+-1) = +-pi/2`, `acos(-1)
+   = pi`): a boundary half-line of a complex strip (`atan(tan(pi/2 +
+   I*b))`, with `tan(pi/2 + I*b) = I*coth b` on the cut) depends on the
+   side of the cut, and stays open. `pi` is the constant's term, so the
+   strips are linear conditions in its enclosure. This mirrors
+   `log(exp(x)) = x` for real `x` (design.md "Terms"). Measured: no
+   stream or gate2 answer changes by it; 14 of the 26 public queries
+   decided with decision 17 are this decision's (13 True, 1 False, all
+   right; docs/comparison.md).

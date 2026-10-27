@@ -646,6 +646,76 @@ changes no answer on the stream, gate2, or the 552 public queries in the
 site's form; on those, the queries over 10 s go from 21 to 6 (on a loaded
 machine; all of them `None` before and after).
 
+Decisions 17 (`Piecewise` as an `If` chain) and 18 (an inverse undoes its
+forward function on the principal strip; `|re asin|`, `|re atan| <=
+pi/2`) change no gate2 answer and no CONTRADICT appears. On the stream, 24
+queries (24 distinct, 15658 to 15732) move from `None` to False, so "more" goes from 119 to 143 and "agree" from 16,112 to 16,088:
+
+- **The value of a `max`-like `Piecewise` is one of its branches**
+  (`Q.positive_infinite` and `Q.negative_infinite` of
+  `Piecewise((x, Q.ge(x, y)), (y, Q.lt(x, y)), (nan, True))` and its
+  permutations over `x`, `y`, `z`, under all real or all negative; False).
+  The conditions are predicates, which z3assume does not read as
+  `Piecewise` conditions (decision 17: a free Boolean each), but whatever
+  they mean, the value is that of one branch: `x`, `y` or `z`, finite
+  reals, or `nan`, and none of them is `+oo` or `-oo` (`nan` is no
+  infinity, special-values V1).
+
+Of the 553 public queries in the site's form `Q.zero(lhs - rhs)`, none
+is lost and 26 are decided (25 True, 1 False), all matching the bench's
+label and none on a contingent case; 6 take over 10 s, as before (all
+`None`). By class:
+
+- **`real_root` of a nonnegative real** (simplipy: `real_root(w, n) =
+  w**(1/n)` for `n = 5, -5`, `w = acos(x)`, `acosh(x)` or `cosh(x)`
+  given `w` real (`x` real for `cosh`), and nonzero for `n < 0`; True). SymPy writes `real_root(w, n)`
+  as `Piecewise((Abs(w)**(1/n)*sign(w), Eq(im(w), 0)), (w**(1/n),
+  True))`. `w` is real, so the first branch is taken. A real `acos(x)`
+  lies in `[0, pi]`, a real `acosh(x)` in `[0, oo)` and `cosh(x)` in
+  `[1, oo)`, so `w >= 0`, and
+  for `w > 0` `|w| = w`, `sign(w) = 1`; for `w = 0` (only `n = 5`) both
+  sides are 0.
+- **`real_root` of a positive real** (simplipy: `log(real_root(x, 7)) =
+  log(x)/7` for real `x` with `re(x) > 0`; `real_root(exp(x), n) =
+  exp(x/n)` for `n = -3`, `-7`, given `exp(x)` real and nonzero and
+  `x` real or `|im(x)| < pi`; True). For `x > 0` the first branch is
+  taken and is `x**(1/7)`, the positive real root, whose `log` is
+  `log(x)/7`. For `exp(x)` SymPy writes
+  `Piecewise((exp(re(x)/n)*sign(exp(x)), Eq(exp(re(x))*sin(im(x)), 0)),
+  (exp(x)**(1/n), True))`: `exp(x)` real means `sin(im x) = 0`, so the
+  first branch is taken, and with `|im x| < pi` (or `x` real) `im x = 0`,
+  so `x` is real, `sign(exp(x)) = 1` and the value is `exp(x/n)`.
+- **`asin(sin x) = x`, `atan(tan x) = x`, `acos(cos x) = x` on the real
+  axis** (simplipy, real `x` in `(-1, 1)` for `asin` and `atan`, in
+  `(0, 3)` for `acos`; True): these intervals lie in `[-pi/2, pi/2]`
+  and `[0, pi]`, where `asin` and `acos` are the real inverses of `sin`
+  and `cos`, and in `(-pi/2, pi/2)`, where `atan` is that of `tan`.
+- **The same with a bounded inner value** (simplipy: `acos(cos(sin x))
+  = |sin x|` and `atan(tan(cos x)) = cos x` for real `x`; True): `sin
+  x`, `cos x` are in `[-1, 1]`, inside `[-pi, pi]` (where `acos(cos v)
+  = |v|`) and `(-pi/2, pi/2)`.
+- **An imaginary inner value** (simplipy: `asin(sin(tanh x)) = tanh x`,
+  `atan(tan(sin x)) = sin x`, `atan(tan(tanh x)) = tanh x` for
+  imaginary `x = I*y`, with `cosh x != 0`; True): `tanh(I*y) = I*tan y`
+  and `sin(I*y) = I*sinh y` are finite (`cos y = cosh x != 0`) and have
+  real part 0, so they lie on the open strip `|re v| < pi/2`, where
+  `asin(sin v) = v` and `atan(tan v) = v` (design.md decision 18: `sin`
+  and `tan` are injective there and their values avoid the cuts).
+- **`atan(tan z) = z` on the open strip** (simplipy, complex `z` with
+  `|re z| < pi/2`, or real `z` in `(-pi/2, pi/2)`; True): `tan` is
+  injective there and its values are finite and off the cuts of `atan`,
+  and `atan` takes values on the open strip off its cuts (decision 18).
+- **`atan(tan z) = z` fails off the closed strip** (simplipy, complex `z`
+  with `|re z| > pi/2` and `cos z != 0`; False): `tan z` is finite, and
+  where `atan(tan z)` is finite its real part is in `[-pi/2, pi/2]`
+  (decision 18; the cuts included), so it is not `z`; an infinite value
+  is not `z` either.
+- **The hyperbolic inverses on the reals** (simplipy: `asinh(sinh x) =
+  x`, `atanh(tanh x) = x`, `acosh(cosh x) = |x|` for real `x`; True):
+  `sinh` is a bijection of R, `tanh` one of R onto `(-1, 1)`, where
+  `atanh` is real, and `cosh x = cosh|x|` with `acosh` the inverse of
+  `cosh` on `[0, oo)`.
+
 ## Speed
 
 z3assume is about 50 to 60 times slower than satassume. The latest
