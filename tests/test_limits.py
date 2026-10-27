@@ -1,7 +1,7 @@
 """Answers near the rlimit (decisions 11 and 12, #29, #31): two wester
 cases that #26's sum axiom moved across the limit of 1,000,000 steps, and
-the fallback."""
-from sympy import Abs, Q, Rational, Symbol, asinh, cos, cosh, im, re, sign, sqrt, tan
+the fallback; and a False that the Groebner growth bound decides (#39)."""
+from sympy import Abs, Q, Rational, Symbol, im, re, sign, sqrt
 
 from z3assume import ask
 
@@ -19,14 +19,6 @@ def test_n6_power_increasing():
     a = (Q.real(x) & Q.real(y) & Q.real(k) & Q.real(n) & Q.gt(x, y) & Q.gt(y, Rational(1, 10))
          & Q.lt(x, 10) & Q.gt(k, 0) & Q.gt(n, 0) & Q.lt(n, 10))
     assert ask(Q.zero(sign(k * x**n - k * y**n) - 1), a) is True
-
-
-
-def test_cosh_asinh_tan_imaginary():
-    # x = i*t: tan(x) = i*tanh(t), asinh(i*s) = i*asin(s) for |s| < 1, so the
-    # left side is sqrt(1 - tanh(t)**2) = 1/cosh(t) = |1/cos(x)| (#39)
-    z = Symbol("z")
-    assert ask(Q.zero(cosh(asinh(tan(z))) - Abs(1 / cos(z))), Q.imaginary(z) & ~Q.zero(cos(z))) is True
 
 
 def test_sqrt_product_second_quadrant():

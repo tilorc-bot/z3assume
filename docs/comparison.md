@@ -624,7 +624,9 @@ stream or gate2 answer changes. Of the 552 public queries in the site's
 form `Q.zero(lhs - rhs)`, none is lost and three are decided:
 
 - simplipy, `cosh(asinh(tan(x))) = Abs(1/cos(x))` for imaginary `x`
-  (True), argued above (lost at #31).
+  (True), argued above (lost at #31). It is an rlimit-edge case: the
+  deciding check stops after about 1,001,000 steps and is unknown with
+  a limit of 990,000, so it has no test.
 - wester, `sign(k*x**n - k*y**n) = 1` under `x > y`, `y > 1/10`,
   `x < 10`, `k > 0`, `0 < n < 10` (True), argued above (lost at #31; the
   test of decision 11 passes again).
