@@ -716,6 +716,71 @@ label and none on a contingent case; 6 take over 10 s, as before (all
   `atanh` is real, and `cosh x = cosh|x|` with `acosh` the inverse of
   `cosh` on `[0, oo)`.
 
+Decisions 19 (the signs of `cos` and `sin` on `[-4*pi, 4*pi]`) and 20
+(`log(exp(w))` and `log(b**x)` on the strips `-pi < im(w) - 2*pi*k <=
+pi`) change no answer on gate2, every8 or the stream, and no CONTRADICT
+appears: the agree, more and less counts are those of decisions 17
+and 18. The only difference is the wall-clock backstop (decision 16):
+one gate2 query and one stream query hit it in this run (another stream
+query did before), all `None` before and after; alone, each takes about
+2.3 s on both trees, so these are the load of the machine.
+
+Of the 553 public queries in the site's form `Q.zero(lhs - rhs)`, none
+is lost and 23 are decided (14 True, 9 False), all matching the bench's
+label and none on a contingent case; 4 take over 10 s (6 before; all
+`None`). By class:
+
+- **`|cos x| = -cos x`, `|sin x| = -sin x` over several periods** (real
+  `x` in intervals between `-7*pi/2` and `-pi`; 4 True, 3 False).
+  `|f| = -f` iff `f <= 0`. The True cases lie in closed or open intervals
+  where `f <= 0` (`cos <= 0` on `[-7*pi/2, -5*pi/2]`, `sin <= 0` on
+  `[-3*pi, -2*pi]`), the False cases in open ones where `f > 0`
+  throughout (`cos > 0` on `(-5*pi/2, -3*pi/2)`, `sin > 0` on `(-2*pi,
+  -pi)`), so there `|f| = f != -f` at every point. The signs: `cos` is
+  `> 0` on `((2*j - 1/2)*pi, (2*j + 1/2)*pi)` and `< 0` on `((2*j +
+  1/2)*pi, (2*j + 3/2)*pi)`, `sin` is `> 0` on `(2*j*pi, (2*j + 1)*pi)`
+  and `< 0` on `((2*j - 1)*pi, 2*j*pi)`, with the zeros at the ends
+  (decision 19).
+- **`sqrt(exp(z)) = exp(z/2)` past the principal strip** (complex `z`
+  with `im z` in `(pi, 3*pi]` or `(-3*pi, -pi]`; False). `sqrt` is the
+  principal root: `re sqrt(w) > 0`, or `re = 0` and `im >= 0`. `exp(z/2)
+  = e**(a/2)*(cos(b/2) + I*sin(b/2))` with `b/2` in `(pi/2, 3*pi/2]`:
+  `cos(b/2) < 0`, or `b/2 = 3*pi/2` and `exp(z/2) = -I*e**(a/2)`, with
+  negative imaginary part; so `exp(z/2)` is never that root (for `b/2` in
+  `(-3*pi/2, -pi/2]`: `cos < 0`, or `b/2 = -pi/2` and the value is
+  `-I*e**(a/2)` again).
+- **`atan(tan z) = z` for real `z` in `(pi/2, 3*pi/2)`** (False): `cos z`
+  is `< 0` there, so `tan z` is a finite real and `atan(tan z)` lies in
+  `(-pi/2, pi/2)`, below `z`.
+- **`log(tan(x/2 + pi/4)) = asinh(tan x)` for real `x` in `(pi/2,
+  3*pi/2)`** (False): `x/2 + pi/4` lies in `(pi/2, pi)`, where `tan < 0`,
+  so the left side has imaginary part `pi`; `cos x != 0` there, so `tan
+  x` is a finite real and `asinh` of it is real.
+- **`log(exp(w)) = w` on the strip** (complex `w` with `-pi < im w <=
+  pi`, also with `re w` bounded or `exp(w) != 0` given; `w = z**2` with
+  `|z| < 1`, where `|im z**2| = 2*|a*b| <= a**2 + b**2 < 1`; True):
+  decision 20, `log(exp(w)) = w` exactly on that strip.
+- **`log(b**x) = x*log(b)`** (`b = 2` and complex `x` on the strip, so
+  `|im(x*log 2)| <= pi*log 2 < pi`; `b = x` real in `(-1, 1)`, nonzero,
+  where `im(x*log x) = pi*x` for `x < 0`, in `(-pi, 0)`; `b = x > 0` with
+  exponent 3; `b = z` with `re z > 0` and exponent 2, where `2*arg z` is
+  in `(-pi, pi)`; True): `b**x = exp(x*log b)` (principal), and decision
+  20.
+- **`log(1/y) = -log(y)` off the negative axis** (`y = cos x` for real
+  `x` with `|x| < pi/2` (as `|log(cos x)|`, since `0 < cos x <= 1`) and
+  for complex `x` with `|re x| < pi/2`, where `re cos x = cos a * cosh b
+  > 0`; `y = log x` for imaginary `x`, where `im log x = +-pi/2`, and for
+  a nonzero integer `x`, where `log x` is `>= 0` or has imaginary part
+  `pi`; `y = cosh x > 0` for real `x`; True): `im(-log y) = -arg(y)` is
+  in `[-pi, pi)`, on the strip unless `arg y = pi`, and none of these
+  `y` is a negative real.
+
+Pinned and interleaved (one core, `--jobs 1`, 3 rounds, medians), main
+9e59c6f against this change: gate2 30.31 s -> 31.10 s (+2.6%), every8
+31.20 s -> 31.50 s (+0.9%). 239 of gate2's 2863 queries and 69 of
+every8's 2029 have a number beyond `pi` and so get the signs beyond
+`pi` (decision 19).
+
 ## Speed
 
 z3assume is about 50 to 60 times slower than satassume. The latest

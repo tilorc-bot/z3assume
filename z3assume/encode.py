@@ -18,7 +18,7 @@ from sympy import Basic, S, Symbol
 from sympy.core.add import Add
 from sympy.core.mul import Mul
 from sympy.core.numbers import (ComplexInfinity, Float, ImaginaryUnit, Infinity, Integer, NaN,
-                                NegativeInfinity, NumberSymbol, Rational)
+                                NegativeInfinity, Number, NumberSymbol, Rational)
 from sympy.core.power import Pow
 from sympy.core.relational import Relational
 from sympy.functions.elementary.complexes import Abs, conjugate, im as Im, re as Re, sign
@@ -124,6 +124,27 @@ def _polar_literal(w):
         f = Fraction(int(w.args[0].p), int(w.args[0].q))
         return abs(f), Fraction(1, 2) if f > 0 else Fraction(-1, 2)
     return None
+
+
+def beyond_pi(*exprs) -> bool:
+    """Whether the expressions have a number beyond ``pi``: a literal of
+    absolute value ``> 3`` or ``c*pi`` with a literal ``|c| > 1``.  Only
+    then does the encoding state the signs of ``cos`` and ``sin`` beyond
+    ``pi`` (``Encoder._far_signs``, decision 19): they cost z3 steps on
+    every query with a ``sin``, ``cos`` or ``exp``, and without such a
+    number they would seldom be used.  A choice of encoding size, not of
+    truth: leaving facts out is sound."""
+    for e in exprs:
+        if not isinstance(e, Basic):
+            continue
+        for a in e.atoms(Number):
+            if a.is_finite and abs(a) > 3:
+                return True
+        for m in e.atoms(Mul):
+            c, rest = m.as_coeff_Mul()
+            if rest is S.Pi and abs(c) > 1:
+                return True
+    return False
 
 
 class Unsupported(Exception):
@@ -345,6 +366,12 @@ class Encoder:
         self._trig = {}
         self._lin = {}
         self._n = 0
+        #: > 0 while ``_principal`` builds the terms of ``exp(x*log(b))``
+        #: (decisions 19, 20)
+        self._internal = 0
+        #: whether ``_circ`` and ``_exp`` state the signs beyond ``pi``
+        #: (``_far_signs``); ``ask`` sets it by ``beyond_pi`` (decision 19)
+        self.far = True
 
     def _count(self) -> int:
         self._n += 1
@@ -1025,10 +1052,21 @@ class Encoder:
         if isinstance(e.exp, Rational):
             self._rational_power(t, b, e.base, Fraction(int(e.exp.p), int(e.exp.q)))
 
-    @_scoped
     def _principal(self, t: Term, base, xe, x: Term, cond):
         """Under ``cond`` (finite ``b != 0``, finite ``x``; raw) ``t`` is the
-        principal value ``exp(x*log(b))`` (``_pow``).  Raw, as ``_pow``."""
+        principal value ``exp(x*log(b))`` (``_pow``).  Raw, as ``_pow``.
+        The terms it makes are internal (``_internal``): their ``exp`` and
+        ``log`` get neither the sign table beyond ``pi`` (decision 19) nor
+        the strips of ``log(exp(w))`` other than real ``w`` (decision 20);
+        both cost z3 steps on every power with a symbolic exponent."""
+        self._internal += 1
+        try:
+            self._principal_value(t, base, xe, x, cond)
+        finally:
+            self._internal -= 1
+
+    @_scoped
+    def _principal_value(self, t: Term, base, xe, x: Term, cond):
         R, T, num = self._raw, t.p, self._raw.real
         lit = _polar_literal(base)
         if lit is None:
@@ -1391,7 +1429,9 @@ class Encoder:
         ``cos b`` and ``sin b`` for ``-pi <= b <= pi`` (linear in ``b`` and
         ``pi``): ``sin b > 0`` on ``(0, pi)``, ``< 0`` on ``(-pi, 0)``,
         ``cos b > 0`` for ``|b| < pi/2``, ``= 0`` at ``|b| = pi/2``, ``< 0``
-        for ``pi/2 < |b| <= pi``, and ``exp(+-pi*I) = -1``.  For
+        for ``pi/2 < |b| <= pi``, and ``exp(+-pi*I) = -1``; for ``pi < |b|
+        <= 4*pi`` those of ``_far_signs`` (decision 19) when ``far``,
+        except for the terms of a power (``_internal``).  For
         ``z = I*pi*c`` (a product with the factors ``I`` and ``pi``) and
         real ``c``: ``exp(z) = cos(pi*c) + I*sin(pi*c)``, which is
         ``(-1)**c`` for an integer ``c`` and not real otherwise
@@ -1442,6 +1482,9 @@ class Encoder:
             R.implies(R.or_(R.and_(gt(b2(), pi), le(b, pi)), R.and_(lt(b2(), neg(pi)), ge(b, neg(pi)))),
                       lt(re, num(0))),
             R.implies(R.or_(eq(b, pi), eq(b, neg(pi))), R.and_(eq(re, neg(M)), eq(im, num(0)))))))
+        # Implies(z.fin, the signs of (re, im) = m*(cos b, sin b) for pi < |b| <= 4*pi)
+        if self.far and not self._internal:
+            add(R.implies(Z.fin, self._far_signs(z.im, self.term(S.Pi).re, t.re, t.im, m).as_ast()))
         w = z.expr
         if isinstance(w, Mul) and S.ImaginaryUnit in w.args and S.Pi in w.args:
             rest = list(w.args)
@@ -1513,8 +1556,17 @@ class Encoder:
         and ``> pi/2`` for ``a < 0``.  ``log(1) = 0``.  Hermite-Lindemann:
         a logarithm ``w`` (any branch) of an algebraic ``z`` other than
         ``0``, ``1`` is transcendental (``w`` is not ``0``, and ``e**w = z``
-        would be transcendental for algebraic ``w``).  ``log(exp(x)) = x``
-        for real ``x``.  At a rational point ``r``, ``re`` lies in the
+        would be transcendental for algebraic ``w``).  ``log(exp(w)) = w -
+        2*pi*I*k`` for finite ``w`` with ``-pi < im(w) - 2*pi*k <= pi``,
+        ``k = 0, +-1`` (``exp(w)`` has modulus ``e**re(w)`` and the
+        arguments ``im(w) + 2*pi*Z``; ``log`` takes the one in ``(-pi,
+        pi]``), and the same for ``log(b**x)`` with ``w = x*log(b)`` for
+        finite ``b != 0``, finite ``x`` (``b**x`` is the principal
+        ``exp(x*log(b))``; for an integer ``x`` the ``|x|``-fold product
+        or its inverse, the same number); so ``log(1/y) = -log(y)`` off
+        the negative axis and ``-log(y) + 2*pi*I`` on it (decision 20).
+        Under ``_internal`` (the terms of a power) only ``log(exp(x)) =
+        x`` for real ``x``.  At a rational point ``r``, ``re`` lies in the
         rational enclosure of ``log|r|`` (``bounds.log_bounds``)."""
         R, add, num = self._raw, self._add_raw, self._raw.real
         eq, gt, lt, ge, neg = R.eq, R.gt, R.lt, R.ge, R.neg
@@ -1563,13 +1615,39 @@ class Encoder:
         # Implies(And(nz, za["algebraic"], Not(one)), Not(a["algebraic"]))
         add(R.implies(R.and_(nz, za["algebraic"], R.not_(one)), R.not_(a["algebraic"])))
         w = z.expr
-        if isinstance(w, exp) and len(w.args) == 1:
+        v = None
+        if isinstance(w, exp) and len(w.args) == 1 and self._internal:
             v = self.term(w.args[0])
             V = v.p
             real = lambda: R.and_(V.fin, eq(V.im, num(0)))                 # noqa: E731 (v.real())
             # Implies(v.real(), And(t.fin, t.re == v.re, t.im == 0))
             add(R.implies(real(), R.and_(T.fin, eq(T.re, V.re), eq(T.im, num(0)))))
             self._same(t, v, real())
+            v = None
+        elif isinstance(w, exp) and len(w.args) == 1:
+            v = self.term(w.args[0])
+            ok = v.p.fin                                                    # v.fin
+        elif isinstance(w, Pow) and not self._internal:
+            # b**x = exp(x*log(b)) (principal) for finite b != 0, finite x
+            b, x = self.term(w.base), self.term(w.exp)
+            v = self.term(Mul(w.exp, log(w.base, evaluate=False)))
+            B = b.p
+            # And(b.fin, Or(b.re != 0, b.im != 0), x.fin, v.fin)
+            ok = R.and_(B.fin, R.or_(R.ne(B.re, num(0)), R.ne(B.im, num(0))), x.p.fin, v.p.fin)
+        if v is not None:
+            # log(exp(v)) = v - 2*pi*I*k with -pi < im(v) - 2*pi*k <= pi
+            V = v.p
+            pi2 = R.mul(num(2), pi)
+            strip = R.and_(ok, gt(V.im, neg(pi)), R.le(V.im, pi))         # And(ok, v.im > -pi, v.im <= pi)
+            # Implies(strip, And(t.fin, t.re == v.re, t.im == v.im))
+            add(R.implies(strip, R.and_(T.fin, eq(T.re, V.re), eq(T.im, V.im))))
+            self._same(t, v, strip)
+            # Implies(And(ok, v.im > -3*pi, v.im <= -pi), And(t.fin, t.re == v.re, t.im == v.im + 2*pi))
+            add(R.implies(R.and_(ok, gt(V.im, R.neg(R.mul(num(3), pi))), R.le(V.im, neg(pi))),
+                          R.and_(T.fin, eq(T.re, V.re), eq(T.im, R.add(V.im, pi2)))))
+            # Implies(And(ok, v.im > pi, v.im <= 3*pi), And(t.fin, t.re == v.re, t.im == v.im - 2*pi))
+            add(R.implies(R.and_(ok, gt(V.im, pi), R.le(V.im, R.mul(num(3), pi))),
+                          R.and_(T.fin, eq(T.re, V.re), eq(T.im, R.add(V.im, R.neg(pi2))))))
         if isinstance(w, Rational) and w != 0:
             b = log_bounds(abs(Fraction(int(w.p), int(w.q))))
             if b is not None:
@@ -1623,9 +1701,12 @@ class Encoder:
         the integer multiples of ``pi``), and then ``cos(pi*c) = (-1)**c``.
         At a rational point ``r``, ``C`` and ``S`` lie in the rational
         enclosures of ``bounds.sin_cos_bounds`` (Taylor polynomial with
-        Lagrange's remainder).  Nothing about periodicity outside
-        ``[-pi, pi]`` for other arguments (it needs an integer witness for
-        ``u/pi``, see ``_exp``)."""
+        Lagrange's remainder).  For ``pi < |u| <= 4*pi`` the signs and
+        values of ``_far_signs`` (decision 19; when ``far``, not under
+        ``_internal``).
+        Nothing about periodicity outside ``[-4*pi, 4*pi]`` for other
+        arguments (it needs an integer witness for ``u/pi``, see
+        ``_exp``)."""
         key = (z.expr, part, "circ")
         if key in self._trig:
             return self._trig[key]
@@ -1643,6 +1724,8 @@ class Encoder:
             z3.Implies(z3.Or(2 * u == pi, 2 * u == -pi), C == 0),
             z3.Implies(z3.Or(z3.And(2 * u > pi, u <= pi), z3.And(2 * u < -pi, u >= -pi)), C < 0),
             z3.Implies(z3.Or(u == pi, u == -pi), z3.And(C == -1, S_ == 0)))))
+        if self.far and not self._internal:
+            self._add(z3.Implies(z.fin, self._far_signs(u, pi, C, S_, 1)))
         c = self._pi_multiple(z, part)
         if c is not None:
             ok = z3.And(z.fin, c.real())
@@ -1656,6 +1739,48 @@ class Encoder:
                 self._add(z3.Implies(z.fin, z3.And(S_ > self._q(slo), S_ < self._q(shi),
                                                    C > self._q(clo), C < self._q(chi))))
         return cos_u, sin_u
+
+    #: the sign tables of ``_circ`` and ``_exp`` reach ``|u| <= FAR_QUARTERS*pi/2``
+    FAR_QUARTERS = 8
+
+    def _far_signs(self, u, pi, c, s, m):
+        """The signs of ``c = m*cos u`` and ``s = m*sin u`` (``m > 0``) for
+        ``pi < |u| <= 4*pi`` (decision 19), the rest of the table that
+        ``_circ`` and ``_exp`` state for ``|u| <= pi``: a conjunction of
+        implications linear in ``u`` and the ``pi`` term (wrapper terms).
+        ``sin u`` is ``> 0`` on ``(2*j*pi, (2*j + 1)*pi)`` and ``< 0`` on
+        ``((2*j - 1)*pi, 2*j*pi)``; ``cos u`` is ``> 0`` on ``((2*j -
+        1/2)*pi, (2*j + 1/2)*pi)`` and ``< 0`` on ``((2*j + 1/2)*pi, (2*j +
+        3/2)*pi)``; at ``u = q*pi/2`` the pair ``(cos u, sin u)`` is ``(1,
+        0)``, ``(0, 1)``, ``(-1, 0)``, ``(0, -1)`` for ``q = 0, 1, 2, 3 (mod
+        4)``.  Exact for every integer ``j``, ``q`` (period ``2*pi``); the
+        intervals are open and the points close them, so every ``u`` of the
+        range gets both signs.  Beyond ``4*pi`` nothing (periodicity for an
+        unbounded ``u`` needs an integer witness for ``u/pi``, see
+        ``_exp``).  Stated only when ``far`` (the query has a number
+        beyond ``pi``, ``beyond_pi``) and not for the terms of a power
+        (``_internal``): it costs z3 steps where it is not used."""
+        n, inner = self.FAR_QUARTERS, 2
+        two_u = 2 * u
+
+        def interval(lo, hi, fact):
+            # (lo*pi/2, hi*pi/2) with the part in [-pi, pi] cut off
+            if lo >= -inner and hi <= inner:
+                return
+            lo, hi = (max(lo, inner), hi) if hi > inner else (lo, min(hi, -inner))
+            fs.append(z3.Implies(z3.And(two_u > lo * pi, two_u < hi * pi), fact))
+
+        fs = []
+        for q in range(-n, n, 2):
+            # sin on (q*pi/2, (q + 2)*pi/2), q even
+            interval(q, q + 2, s > 0 if q % 4 == 0 else s < 0)
+        for q in range(-n, n + 1, 2):
+            # cos on ((q - 1)*pi/2, (q + 1)*pi/2), q even, cut to the range
+            interval(max(q - 1, -n), min(q + 1, n), c > 0 if q % 4 == 0 else c < 0)
+        for q in [*range(-n, -inner), *range(inner + 1, n + 1)]:
+            cv, sv = ((m, 0), (0, m), (-m, 0), (0, -m))[q % 4]
+            fs.append(z3.Implies(two_u == q * pi, z3.And(c == cv, s == sv)))
+        return z3.And(fs)
 
     def _hyp(self, z: Term, part: str):
         """``(cosh u, sinh u)`` for the real ``u`` = that part of ``z``, as

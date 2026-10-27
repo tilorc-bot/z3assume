@@ -8,10 +8,11 @@ from fractions import Fraction
 import mpmath
 import pytest
 from sympy import (Eq, I, Integer, Q, Rational, S, acos, acosh, acot, acoth, asin, asinh, atan, atanh, cos,
-                   cosh, cot, coth, csc, csch, exp, pi, re, sec, sech, sin, sinh, symbols, tan, tanh)
+                   cosh, cot, coth, csc, csch, exp, im, pi, re, sec, sech, sin, sinh, symbols, tan, tanh)
 
 from z3assume import ask
 from z3assume.bounds import cosh_sinh_bounds, sin_cos_bounds
+from z3assume.encode import beyond_pi
 
 x, y, t, p = symbols("x y t p")
 
@@ -181,12 +182,43 @@ CASES = [
     (Q.zero(coth(x)), Q.infinite(x), None, "no limit at oo*I (coth(I*t) = -I*cot(t)) or zoo"),
     (Q.extended_real(cosh(x + I)), Q.positive_infinite(x), None, "x + I is oo or an infinity off the real axis"),
     (Q.positive_infinite(sinh(x + y)), Q.positive_infinite(x) & Q.eq(y, I * pi), None, "sinh(t + I*pi) = -sinh(t)"),
+    # decision 19: the sign tables of (cos u, sin u) on [-4*pi, 4*pi]
+    (Q.negative(cos(x)), Q.real(x) & Q.gt(x, 11 * pi / 4) & Q.lt(x, 13 * pi / 4), True, "around 3*pi"),
+    (Q.negative(cos(x)), Q.real(x) & Q.gt(x, 2 * pi) & Q.lt(x, 3 * pi), None, "cos(2*pi + 1/10) > 0"),
+    (Q.positive(sin(x)), Q.real(x) & Q.gt(x, -4 * pi) & Q.lt(x, -3 * pi), True, "(0, pi) - 4*pi"),
+    (Q.positive(sin(x)), Q.real(x) & Q.gt(x, -4 * pi) & Q.lt(x, -2 * pi), None, "sin(-5*pi/2) = -1"),
+    (Q.zero(cos(x)), Q.eq(x, 7 * pi / 2), True, "zero of cos"),
+    (Q.zero(sin(x) + 1), Q.eq(x, -5 * pi / 2), True, "-5*pi/2 = -pi/2 - 2*pi"),
+    (Q.zero(cos(x) + 1), Q.eq(x, 3 * pi), True, "cos(3*pi) = -1"),
+    (Q.positive(tan(x)), Q.real(x) & Q.gt(x, 2 * pi) & Q.lt(x, 5 * pi / 2), True, "sin, cos > 0"),
+    (Q.positive(cos(x)), Q.real(x) & Q.gt(x, -9 * pi / 2) & Q.lt(x, -7 * pi / 2), None,
+     "true, but beyond -4*pi the table says nothing"),
+    (Q.positive(sinh(y) * sin(x)), Q.real(x) & Q.gt(x, 2 * pi) & Q.lt(x, 3 * pi) & Q.positive(y), True,
+     "sin > 0 on (2*pi, 3*pi)"),
+    # decision 19: the same table for exp(a + b*I) = e**a*(cos b + I*sin b)
+    (Q.negative(re(exp(x))), Q.finite(x) & Q.gt(im(x), 5 * pi / 2) & Q.lt(im(x), 7 * pi / 2), True,
+     "cos b < 0"),
+    (Q.positive(im(exp(x))), Q.finite(x) & Q.gt(im(x), -4 * pi) & Q.lt(im(x), -3 * pi), True, "sin b > 0"),
+    (Q.positive(im(exp(x))), Q.finite(x) & Q.gt(im(x), 2 * pi) & Q.lt(im(x), 4 * pi), None, "sin b < 0 past 3*pi"),
+    (Q.zero(exp(x) - exp(re(x))), Q.finite(x) & Q.eq(im(x), -4 * pi), True, "exp(-4*pi*I) = 1"),
+    (Q.positive(sin(x)), Q.real(x) & Q.gt(x, 7) & Q.lt(x, 9), True, "(2*pi, 3*pi), a literal > 3"),
+    (Q.negative(sin(x + y)), Q.real(x) & Q.real(y) & Q.gt(x, 3) & Q.lt(x, pi) & Q.gt(y, 3) & Q.lt(y, pi),
+     None, "true (x + y in (6, 2*pi)), but no number beyond pi: no far signs (decision 19)"),
 ]
 
 
 @pytest.mark.parametrize("p, a, answer, why", CASES, ids=[f"{c[0]} | {c[1]}" for c in CASES])
 def test_answer(p, a, answer, why):
     assert ask(p, a) is answer
+
+
+def test_beyond_pi():
+    # decision 19: the far signs only for a query with a number beyond pi
+    assert beyond_pi(Q.gt(x, 3 * pi / 2), True)
+    assert beyond_pi(True, Q.lt(x, -4))
+    assert beyond_pi(Q.zero(cos(x)), Q.eq(x - 7 * pi / 2, y))
+    assert not beyond_pi(Q.lt(abs(x), pi), Q.zero(sin(x) ** 2 + cos(x) ** 3))
+    assert not beyond_pi(Q.gt(x, -3) & Q.lt(x, S.Infinity) & Q.gt(y, pi / 2))
 
 
 def test_sympy_forms():

@@ -9,7 +9,7 @@ from z3.z3core import Z3_solver_assert
 from sympy import Basic
 from sympy.core.function import AppliedUndef
 
-from .encode import Encoder, Unsupported
+from .encode import Encoder, Unsupported, beyond_pi
 
 #: z3's resource limit per check: a count of internal steps, so an answer
 #: does not depend on the machine's speed or load (decision 12, #31).
@@ -89,6 +89,7 @@ def _decide(proposition, assumptions, deadline) -> Optional[bool]:
     # a fresh context per query: in a shared one, z3's term ids and caches,
     # and so the search, would depend on the queries asked before (#7)
     enc = Encoder(z3.Context())
+    enc.far = beyond_pi(proposition, assumptions)
     try:
         p = enc.formula(proposition)
     except Unsupported:
