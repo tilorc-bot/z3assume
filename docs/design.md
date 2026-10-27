@@ -139,7 +139,8 @@ difference, harmless while non-commutative input is out of scope).
 - `Add`: when all arguments are finite, finite with `re` and `im` the sums;
   when the arguments are integers, `k_t` is the sum of their `k`, and
   when the sum and every argument but one are integers, so is that one (the
-  integers are closed under subtraction; #23). With an
+  integers are closed under subtraction; #23), except in a sum without
+  free symbols (decision 13). With an
   infinite argument: `+oo` plus real or `+oo` arguments is `+oo` (likewise
   `-oo`); with a non-real finite argument it is `+oo` or an infinity of the
   other kind, as the conventions disagree (decision 3): SymPy evaluates
@@ -670,3 +671,15 @@ one-line rationale added here.
    docs/comparison.md) and the second case of decision 11, which needs
    1,130,000 steps (its test is an expected failure); the stream and
    gate2 answers do not change.
+13. New (#33): the converse integer axiom of a sum (#23: an integer sum
+   whose other summands are integers makes the last one an integer) is
+   left out for a sum without free symbols. Rationale: its summands are
+   numbers whose kinds their own axioms state (rationals, the algebraic
+   closure, the named constants), so the axiom gave no answer of the
+   corpora there, but it let z3's nonlinear core split on the integer
+   witnesses of nested radicals, and one Groebner step then ran for
+   seconds inside one rlimit: the repro of #33 took 5.1 s against 0.30 s
+   pinned (the same 1,024,583 against 1,024,506 steps). Leaving an axiom
+   out cannot make an answer wrong; the stream and gate2 answers do not
+   change, and on the bench site's 553 public queries one more is
+   decided (True) and none is lost.

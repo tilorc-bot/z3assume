@@ -614,7 +614,10 @@ class Encoder:
         allint = R.and_(*[x.atoms["integer"] for x in xs])
         # Implies(And(allfin, allint), And(t.atoms["integer"], t.k == Sum([x.k ...])))
         add(R.implies(R.and_(allfin, allint), R.and_(T.atoms["integer"], R.eq(T.k, R.add(*[x.k for x in xs])))))
-        if len(xs) > 1:
+        # not for a constant sum (#33): its summands' kinds come from their
+        # own axioms, and the converse only lets the nonlinear core split
+        # on the integer witnesses of radicals (seconds in one Groebner call)
+        if len(xs) > 1 and t.expr.free_symbols:
             # the integers are closed under subtraction (#23): an integer
             # sum of integers and one more summand makes that one an integer
             for i, x in enumerate(xs):
