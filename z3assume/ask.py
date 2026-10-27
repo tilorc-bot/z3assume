@@ -23,6 +23,13 @@ TIMEOUT_MS = 10_000
 FALLBACK = ("simplify", "propagate-values", "solve-eqs", "smt")
 FALLBACK_RLIMIT = 250_000
 
+#: z3 parameters of every check.  Groebner's growth per step is bounded
+#: (z3's defaults are 2): a Groebner call is one z3 step, and with the
+#: default growth one call on the polynomials of complex products (real
+#: and imaginary parts) runs for seconds (#39, decision 15).
+PARAMS = (("smt.arith.nl.grobner_expr_degree_growth", 1),
+          ("smt.arith.nl.grobner_expr_size_growth", 1))
+
 _MEMO = {}
 MEMO_SIZE = 100_000
 
@@ -51,6 +58,8 @@ def _check(enc: Encoder, *fs):
 def _run(enc: Encoder, s, rlimit, fs):
     s.set("rlimit", rlimit)
     s.set("timeout", TIMEOUT_MS)
+    for k, v in PARAMS:
+        s.set(k, v)
     c, solver = enc.ctx.ref(), s.solver
     for f in enc.axioms:            # raw pointers, in order (s.add would wrap each)
         Z3_solver_assert(c, solver, f)
