@@ -24,6 +24,7 @@ from sympy.core.relational import Relational
 from sympy.functions.elementary.complexes import Abs, conjugate, im as Im, re as Re, sign
 from sympy.functions.elementary.exponential import exp, log
 from sympy.functions.elementary.integers import ceiling, floor, frac
+from sympy.functions.elementary.piecewise import Piecewise
 from sympy.functions.elementary.hyperbolic import (acosh, acoth, asinh, atanh, cosh, coth, csch, sech, sinh,
                                                    tanh)
 from sympy.functions.elementary.trigonometric import acos, acot, asin, atan, cos, cot, csc, sec, sin, tan
@@ -84,6 +85,17 @@ TRIG = {
 #: The inverse functions (SymPy's principal branches), by the value of the
 #: forward function at 0 (0, 1, or None for the pole of cot and coth).
 INVERSE = {asin: 0, acos: 1, atan: 0, acot: None, asinh: 0, acosh: 1, atanh: 0, acoth: None}
+
+#: The forward function an inverse undoes on its principal strip
+#: (``Encoder._composition``).
+FORWARD = {asin: sin, acos: cos, atan: tan, asinh: sinh, acosh: cosh, atanh: tanh}
+
+#: The SymPy relations a Piecewise condition is built from (by class
+#: name, as ``Encoder._relation`` takes them), and those of them that
+#: compare in the order of the reals (``Encoder._condition``).
+_RELATION_NAMES = ("Equality", "Unequality", "StrictLessThan", "LessThan", "StrictGreaterThan", "GreaterThan")
+_ORDER_NAMES = _RELATION_NAMES[2:]
+_CONNECTIVES = (And, Or, Not, Implies, Equivalent, Xor, ITE)
 
 
 def _iroot(n: int, q: int) -> int:
@@ -549,6 +561,8 @@ class Encoder:
             self._gamma(t, self.term(e.args[0]))
         elif type(e) is factorial and len(e.args) == 1:
             self._factorial(t, self.term(e.args[0]))
+        elif type(e) is Piecewise:                                      # not a user subclass
+            self._piecewise(t, e)
         else:
             self._opaque(t, e)
 
@@ -598,6 +612,81 @@ class Encoder:
 
     def _opaque(self, t: Term, e):
         """A term outside the encoding: any value, nan included."""
+
+    def _piecewise(self, t: Term, e):
+        """``Piecewise((v1, c1), (v2, c2), ...)``: the value of the first
+        branch whose condition holds (decision 17).  Branch ``i`` is
+        selected where ``c1``, ..., ``c(i-1)`` are defined and false and
+        ``ci`` is defined and true (``_condition``), and there ``t`` is the
+        value of ``vi`` (``_is``).  Where no branch is selected (no
+        condition holds and there is no ``True`` branch: SymPy's ``nan``;
+        or a condition before the selected one is undefined) nothing is
+        said, so ``t`` is as free as an opaque term.  Each branch value is
+        a term with its own axioms, which are facts about that value at
+        every point, whichever branch is selected."""
+        earlier = []
+        for pair in e.args:
+            v = self.term(pair.expr)
+            defined, holds = self._condition(pair.cond)
+            self._is(t, v, z3.And(*earlier, defined, holds))
+            earlier += [defined, z3.Not(holds)]
+
+    def _condition(self, c):
+        """``(defined, holds)`` of a Piecewise condition, two z3 Booleans.
+
+        A condition made of ``True``, ``False``, the relations ``Eq``,
+        ``Ne``, ``<``, ``<=``, ``>``, ``>=`` and the connectives is encoded
+        as a proposition (``formula``: ``Eq`` is equality of values, open
+        for two other infinities or a nan; an order relation is false
+        unless both sides are extended real).  An order relation between
+        values that are not both extended real has no truth value (SymPy
+        raises ``TypeError``: "Invalid comparison of non-real I"), so it
+        is ``defined`` only where all its order relations compare extended
+        reals.  Anything else (predicates, ``Contains``, terms outside the
+        encoding) is a fresh Boolean, defined everywhere: whatever it
+        means, it is true or false at each point."""
+        order = []
+
+        def plain(b):
+            if isinstance(b, (BooleanTrue, BooleanFalse)):
+                return True
+            if isinstance(b, _CONNECTIVES):
+                return all(plain(a) for a in b.args)
+            if isinstance(b, Relational) and type(b).__name__ in _RELATION_NAMES:
+                if type(b).__name__ in _ORDER_NAMES:
+                    order.append(b)
+                return True
+            return False
+
+        if plain(c):
+            try:
+                holds = self.formula(c)
+                defined = z3.And([z3.BoolVal(True, self.ctx)]
+                                 + [z3.And(self.term(r.lhs).ext_real(), self.term(r.rhs).ext_real())
+                                    for r in order])
+                return defined, holds
+            except Unsupported:
+                pass
+        return z3.BoolVal(True, self.ctx), self._free(("piecewise", c))
+
+    def _is(self, t: Term, z: Term, cond):
+        """Under ``cond`` the value of ``t`` is that of ``z``: the same
+        kind, the same parts when finite, and the same predicates
+        (``_same``; those with a numeric definition follow from the
+        value)."""
+        self._add(z3.Implies(cond, z3.And(t.fin == z.fin, t.pinf == z.pinf, t.ninf == z.ninf, t.cinf == z.cinf,
+                                          t.nan == z.nan)),
+                  z3.Implies(z3.And(cond, z.fin), z3.And(t.re == z.re, t.im == z.im)))
+        self._same(t, z, cond)
+
+    def _negated(self, t: Term, z: Term, cond):
+        """Under ``cond`` (``z`` a finite real there) the value of ``t`` is
+        ``-z``: ``-z`` is an integer, rational, algebraic, even exactly when
+        ``z`` is, with ``k`` negated and the same parity."""
+        a, za = t.atoms, z.atoms
+        self._add(z3.Implies(cond, z3.And(t.fin, t.re == -z.re, t.im == -z.im)),
+                  z3.Implies(cond, z3.And([a[p] == za[p] for p in ("integer", "rational", "algebraic", "even")])),
+                  z3.Implies(z3.And(cond, za["integer"]), z3.And(t.k == -z.k, t.r == z.r)))
 
     # Sums and products are in most queries, so their axioms are raw too
     # (as _shape's: the wrapper code in the comments, its nodes in its
@@ -1804,6 +1893,76 @@ class Encoder:
         # off the real axis w is not real: f(w) = x, and f maps the reals
         # into the reals and zoo
         self._add(z3.Implies(z3.And(x.fin, x.im != 0), z3.Not(treal)))
+        # decision 18: the real part of asin and atan at every finite point
+        # (the cuts included) is in [-pi/2, pi/2]
+        if f is asin:
+            self._add(z3.Implies(x.fin, z3.And(2 * w >= -pi, 2 * w <= pi)))
+        elif f is atan:
+            self._add(z3.Implies(z3.And(x.fin, t.fin), z3.And(2 * w >= -pi, 2 * w <= pi)))
+        g = x.expr
+        if FORWARD.get(f) is type(g) and len(g.args) == 1:
+            self._composition(t, f, self.term(g.args[0]))
+
+    def _composition(self, t: Term, f, v: Term):
+        """``t = f(g(v))`` with ``g`` the forward function of ``f``
+        (``FORWARD``; decision 18): on the principal strip ``f`` undoes
+        ``g``, and outside it nothing is said.
+
+        - ``asin(sin v) = v`` and ``atan(tan v) = v`` for ``|re v| <
+          pi/2``; ``acos(cos v) = v`` for ``0 < re v < pi``.  On the open
+          strip ``|re v| < pi/2``, ``sin v = sin a cosh b + I cos a sinh b``
+          with ``cos a > 0`` is real only for ``b = 0``, so it is never on
+          the cuts ``|x| >= 1`` of ``asin``; ``tan v`` is finite (``cos v =
+          0`` only at ``a = pi/2 + k*pi``), and ``re tan v = sin(2a)/(cos(2a)
+          + cosh(2b)) = 0`` only for ``a = 0``, where ``tan v = I*tanh b``
+          with ``|tanh b| < 1``: never on the cuts of ``atan`` (the
+          imaginary axis beyond ``+-I``).  Off its cuts ``w = asin x =
+          -I*log(q)``, ``q = I*x + s``, ``s = sqrt(1 - x**2)``, has ``|re w|
+          < pi/2``: ``q*(s - I*x) = 1``, so ``re q*(1 + 1/|q|**2) = re(q +
+          1/q) = 2*re s > 0`` (``re s = 0`` only on the cuts), and ``re w =
+          arg q``.  Off its cuts ``w = atan x = (log(1 + I*x) - log(1 -
+          I*x))/(2*I)`` has ``re w = (arg(1 + I*x) - arg(1 - I*x))/2`` with
+          ``|re w| < pi/2``: the two points have the sum 2 and opposite
+          imaginary parts, so the segment between them crosses the real axis
+          at 1, and the difference of their arguments is the angle at 0 of
+          the triangle they make with 0 (the angle that contains the
+          direction of 1), below ``pi``; unless both are real, which off the
+          cuts (``x = I*y``, ``|y| < 1``) makes both positive.  And ``g(w) = x = g(v)``
+          (``_inverse``: a right inverse) with ``w``, ``v`` on the same open
+          strip: ``sin w = sin v`` means ``w = v + 2*k*pi`` or ``w = pi - v
+          + 2*k*pi``, and only ``w = v`` has ``|re w| < pi/2``; ``tan w =
+          tan v`` means ``sin(w - v) = 0``, ``w = v + k*pi``, so ``k = 0``.
+          For ``acos``, ``acos x = pi/2 - asin x`` off the cuts (both are
+          continuous with ``cos`` of them ``x`` on the connected cut plane,
+          where ``x`` is no critical value ``+-1``, and they agree at 0),
+          and ``cos v = sin(pi/2 - v)`` with ``|re(pi/2 - v)| < pi/2``.
+        - On the reals: ``asin(sin v) = v`` on ``[-pi/2, pi/2]`` and
+          ``acos(cos v) = |v|`` on ``[-pi, pi]`` (``cos v = cos|v|``, and
+          ``acos`` is the inverse of ``cos`` on ``[0, pi]``, endpoints
+          included: ``asin(+-1) = +-pi/2``, ``acos(1) = 0``, ``acos(-1) =
+          pi``); ``asinh(sinh v) = v`` (``sinh`` is a bijection of R),
+          ``atanh(tanh v) = v`` (``tanh`` maps R onto ``(-1, 1)``, where
+          ``atanh`` is its real inverse) and ``acosh(cosh v) = |v|``
+          (``cosh v = cosh|v| >= 1``, ``acosh`` the inverse of ``cosh`` on
+          ``[0, oo)``).
+
+        ``pi`` is the constant's term, so the strips are linear conditions
+        in its enclosure."""
+        pi = self.term(S.Pi).re
+        u, real = v.re, v.real()
+        if f in (asin, atan):
+            self._is(t, v, z3.And(v.fin, 2 * u > -pi, 2 * u < pi))
+        if f is asin:
+            self._is(t, v, z3.And(real, 2 * u >= -pi, 2 * u <= pi))
+        elif f is acos:
+            self._is(t, v, z3.And(v.fin, u > 0, u < pi))
+            self._is(t, v, z3.And(real, u >= 0, u <= pi))
+            self._negated(t, v, z3.And(real, u <= 0, u >= -pi))
+        elif f in (asinh, atanh):
+            self._is(t, v, real)
+        elif f is acosh:
+            self._is(t, v, z3.And(real, u >= 0))
+            self._negated(t, v, z3.And(real, u <= 0))
 
     def _q(self, f: Fraction):
         return z3.Q(f.numerator, f.denominator, self.ctx) if f.denominator != 1 else z3.RealVal(f.numerator, self.ctx)
