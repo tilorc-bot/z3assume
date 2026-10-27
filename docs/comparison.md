@@ -640,6 +640,12 @@ form `Q.zero(lhs - rhs)`, none is lost and three are decided:
   equals `sqrt(y)` only for `y = 0`, which `re(y) < 0` excludes. The
   bench's reference timed out on it.
 
+#39 also makes the wall-clock backstop a budget of the whole query, of
+which each side of a decision gets half (design.md decision 16). It
+changes no answer on the stream, gate2, or the 552 public queries in the
+site's form; on those, the queries over 10 s go from 21 to 6 (on a loaded
+machine; all of them `None` before and after).
+
 ## Speed
 
 z3assume is about 50 to 60 times slower than satassume. The latest
