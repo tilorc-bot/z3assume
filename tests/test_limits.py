@@ -1,6 +1,9 @@
 """Answers near the rlimit (decisions 11 and 12, #29, #31): two wester
 cases that #26's sum axiom moved across the limit of 1,000,000 steps, and
-the fallback; and a False that the Groebner growth bound decides (#39)."""
+the fallback; a False that the Groebner growth bound decides (#39); and
+the wall-clock budget (decision 16)."""
+import sys
+
 from sympy import Abs, Q, Rational, Symbol, im, re, sign, sqrt
 
 from z3assume import ask
@@ -29,3 +32,16 @@ def test_sqrt_product_second_quadrant():
     assume = (Q.complex(a) & Q.complex(b) & Q.complex(z) & ~Q.zero(z)
               & Q.lt(re(a), 0) & Q.ge(im(a), 0) & Q.lt(re(b), 0) & Q.ge(im(b), 0))
     assert ask(Q.zero(lhs - sqrt(b)), assume) is False
+
+
+def test_backstop_exhausted(monkeypatch):
+    # with no wall-clock budget left, no check runs: None, both sides
+    # counted as backstop firings and not memoized (decision 16)
+    askmod = sys.modules["z3assume.ask"]         # the package exports the function ask
+    q, a = Q.positive(x + 1), Q.positive(x)
+    askmod._MEMO.pop((q, a), None)
+    monkeypatch.setattr(askmod, "TIMEOUT_MS", 0)
+    assert ask(q, a) is None
+    assert askmod.last["timeout"] == 2
+    monkeypatch.undo()
+    assert ask(q, a) is True

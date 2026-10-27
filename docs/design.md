@@ -500,7 +500,10 @@ step is not a fixed amount of time: in the nonlinear solver one step can
 cost a hundred times what it costs elsewhere (#31: one Groebner basis call
 took 11 s and 550 MB inside a limit of 1,000,000 steps, and nlsat's
 polynomial work runs at about 200,000 steps a second). So each
-check also has a wall-clock backstop of 10 s. A check stopped by the
+query also has a wall-clock backstop of 10 s (`TIMEOUT_MS`): each side
+of a decision (`A & ~P` and `A & P`, the default run and the fallback
+run below together) may use half of it, and no more than is left of the
+query's (decision 16). A check stopped by the
 backstop is `unknown`, so the answer is `None`, and whether a check near
 the backstop finishes depends on the machine and its load: such answers
 are not deterministic. The backstop is set far above the rlimit's usual
@@ -515,8 +518,9 @@ runs out of it (not when the backstop fires), the check is tried once
 more with the tactics `simplify`, `propagate-values`, `solve-eqs`, `smt`
 and an rlimit of 250,000 (`FALLBACK`, `FALLBACK_RLIMIT`). These tactics
 have no wall-clock timers of their own (`qfnia` has `try_for`, so it
-is not used), so both runs are deterministic, and
-either `unsat` is a proof: the fallback can only turn a `None` into an
+is not used), so both runs are deterministic up to the backstop, which
+both share (when the default run leaves no time, the fallback is
+skipped and counted as a firing); either `unsat` is a proof: the fallback can only turn a `None` into an
 answer the axioms entail (decision 11).
 
 satassume answers under the part of `A` connected to `P` unless the whole
@@ -721,3 +725,33 @@ one-line rationale added here.
    2 lost, and the queries over 10 s go from 13 to 9. gate2 and every eighth stream
    query take the same time (pinned pareto1 core, three rotating rounds:
    medians 29.35 s and 30.53 s before, 29.46 s and 30.61 s after).
+16. New (#39): the wall-clock backstop `TIMEOUT_MS` (10 s) bounds a whole
+   query instead of each z3 run, and each side of a decision (`A & ~P`,
+   `A & P`, with its fallback run) gets half of it, at most what is left.
+   Rationale: the backstop is there because z3's steps do not bound its
+   time in the nonlinear solver, and what a caller waits for is the
+   query, not one run. Per run, a query could take several backstops
+   (each side's default and fallback runs, and the constant pre-check's
+   two sides), and one hard side made
+   the query take the full 10 s even when the other side was decided at
+   once. With the budget split, a query takes about one backstop at most,
+   and within a decision one hard side cannot use up the other's time (the
+   constant pre-check's sides do share the query's budget with the
+   decision under `A`). It only stops checks earlier, and only checks
+   that the rlimit has not already stopped: an answer it changes is one
+   whose deciding check runs longer than 5 s of wall time, which is an
+   answer that depends on the machine, as one near 10 s did before; none
+   of the corpora has one, and `None` is never memoized after a firing. Deterministic bounds were
+   tried first on the remaining timeouts (`nlsat.max_conflicts` 10 and
+   100, `nlsat.factor=false`; no effect: nlsat's time goes into single
+   algebraic calls, not conflicts) and none was found. Not fixed: z3
+   sometimes overruns its own timer (one public case, `sin` and `cos`
+   powers of degree 20 at a complex argument, runs about 30 s against
+   5 s);
+   only killing a process would stop that. Measured: no answer changes on
+   the stream (two runs), gate2, the 552 public queries of the bench site
+   (site's form) and the private suites (run where they live); public
+   queries over 10 s 21 -> 6, private 7 -> 4 (loaded machines); gate2 and
+   every eighth stream query take the same time (pinned pareto1 core,
+   three rotating rounds: medians 34.55 s and 34.21 s before, 33.79 s and
+   34.33 s after, under other load).
