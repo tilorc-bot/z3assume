@@ -19,7 +19,7 @@ RLIMIT = 1_000_000
 #: elsewhere.  Each side of a decision (``A & ~P``, ``A & P``) gets half of
 #: it, at most what is left of the query's.  When it fires the check is
 #: unknown, so the answer is None; it is counted in ``last["timeout"]``
-#: (decision 16).
+#: (decision 16).  0 means no time at all (not z3's "no timeout").
 TIMEOUT_MS = 10_000
 #: The fallback check (``_check``): tactics with no wall-clock timers of
 #: their own (``qfnia`` has ``try_for``), and its rlimit; 0

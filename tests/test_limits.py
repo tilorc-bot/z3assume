@@ -39,6 +39,7 @@ def test_backstop_exhausted(monkeypatch):
     # counted as backstop firings and not memoized (decision 16)
     askmod = sys.modules["z3assume.ask"]         # the package exports the function ask
     q, a = Q.positive(x + 1), Q.positive(x)
+    askmod._MEMO.pop((q, a), None)
     monkeypatch.setattr(askmod, "TIMEOUT_MS", 0)
     assert ask(q, a) is None
     assert askmod.last["timeout"] == 2
