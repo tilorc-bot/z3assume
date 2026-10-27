@@ -673,13 +673,17 @@ one-line rationale added here.
    gate2 answers do not change.
 13. New (#33): the converse integer axiom of a sum (#23: an integer sum
    whose other summands are integers makes the last one an integer) is
-   left out for a sum without free symbols. Rationale: its summands are
-   numbers whose kinds their own axioms state (rationals, the algebraic
-   closure, the named constants), so the axiom gave no answer of the
-   corpora there, but it let z3's nonlinear core split on the integer
-   witnesses of nested radicals, and one Groebner step then ran for
-   seconds inside one rlimit: the repro of #33 took 5.1 s against 0.30 s
-   pinned (the same 1,024,583 against 1,024,506 steps). Leaving an axiom
-   out cannot make an answer wrong; the stream and gate2 answers do not
-   change, and on the bench site's 553 public queries one more is
+   left out for a sum without free symbols. Rationale: the axiom states
+   no new fact (for finite values the sum's real part and the
+   non-integer axiom imply it); it is a hint for the search, which #23
+   needed for sums with symbols. In a sum without free symbols it gave
+   no answer of the corpora, but it let z3's nonlinear core split on the
+   integer witnesses of nested radicals, and one Groebner step then ran
+   for seconds inside one rlimit: the repro of #33 took 5.1 s against
+   0.30 s (pinned pareto1 core, three rounds each), and both default
+   checks run to the 1,000,000 limit (z3 counts 1,024,583 and 1,024,506
+   steps when it stops), so the steps are the same and the seconds are
+   not. Leaving an axiom out cannot make an answer wrong; the stream and
+   gate2 answers do not change, and on the bench site's 553 public
+   queries one more is
    decided (True) and none is lost.
