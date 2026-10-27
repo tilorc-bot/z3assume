@@ -613,6 +613,12 @@ timeouts (decision 12):
   side. It needs more than 1,000,000 steps in the site's form;
   `Eq(...)` itself is `None` even at 8,000,000.
 
+#33 leaves the converse integer axiom of #23 out of sums without free
+symbols (design.md decision 13). No stream or gate2 answer changes; of
+the 553 public queries, asked as given, none is lost and one comes back:
+`sqrt(-2 + sqrt(-5))*sqrt(-2 - sqrt(-5)) = 3`, True, argued above. (In
+the site's form `Q.zero(lhs - rhs)` it was True at 8cf915f already.)
+
 ## Speed
 
 z3assume is about 50 to 60 times slower than satassume. The latest
