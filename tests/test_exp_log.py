@@ -6,7 +6,7 @@ from fractions import Fraction
 
 import mpmath
 import pytest
-from sympy import (E, Eq, I, Integer, Pow, Q, Rational, S, exp, log, pi, sqrt, symbols)
+from sympy import (E, Eq, I, Integer, Pow, Q, Rational, S, exp, im, log, pi, re, sqrt, symbols)
 
 from z3assume import ask
 from z3assume.bounds import exp_bounds, log_bounds
@@ -101,6 +101,31 @@ CASES = [
     (Q.real(log(exp(x))), Q.imaginary(x), None, "log(exp(2*pi*I)) = 0, log(exp(I)) = I"),
     (Q.rational(exp(log(x), evaluate=False)), Q.rational(x) & Q.nonzero(x), True, "exp(log(x)) = x"),
     (Q.zero(log(E, evaluate=False) - 1), True, True, "E = exp(1)"),
+    # decision 20: log(exp(w)) = w - 2*pi*I*k, -pi < im(w) - 2*pi*k <= pi
+    (Q.zero(log(exp(x)) - x), Q.finite(x) & Q.gt(im(x), -1) & Q.lt(im(x), 3), True, "strip"),
+    (Q.zero(log(exp(x)) - x), Q.finite(x) & Q.gt(im(x), -1) & Q.lt(im(x), 4), None, "log(exp(7*I/2)) != 7*I/2"),
+    (Q.zero(log(exp(x)) - x), Q.finite(x) & Q.gt(im(x), 4) & Q.lt(im(x), 9), False, "im differs by 2*pi"),
+    (Q.zero(log(exp(x)) - x + 2 * I * pi), Q.finite(x) & Q.gt(im(x), 4) & Q.lt(im(x), 9), True, "next strip"),
+    (Q.zero(log(exp(x)) - x), Q.finite(x) & Q.eq(im(x), pi), True, "arg = pi is on the strip"),
+    (Q.zero(log(exp(x)) - x - 2 * I * pi), Q.finite(x) & Q.eq(im(x), -pi), True, "arg = -pi is not"),
+    (Q.zero(log(exp(x)) - x), Q.gt(im(x), -1) & Q.lt(im(x), 1), None, "x = oo: log(oo) = oo, but x = -oo"),
+    # decision 20: log(b**x) = x*log(b) on the same strip (b**x = exp(x*log(b)))
+    (Q.zero(log(3 ** x) - x * log(3)), Q.real(x), True, "x*log(3) is real"),
+    (Q.zero(log(y ** x) - x * log(y)), Q.positive(y) & Q.real(x), True, "x*log(y) is real"),
+    (Q.zero(log(y ** x) - x * log(y)), Q.negative(y) & Q.gt(x, 0) & Q.lt(x, 1), True, "im = pi*x in (0, pi)"),
+    (Q.zero(log(y ** x) - x * log(y)), Q.negative(y) & Q.real(x), None, "log((-1)**3) = pi*I != 3*pi*I"),
+    (Q.zero(log(sqrt(y)) - log(y) / 2), Q.complex(y) & ~Q.zero(y), True, "arg(y)/2 in (-pi/2, pi/2]"),
+    (Q.zero(log(sqrt(y)) - log(y) / 2), ~Q.zero(y), None, "y = zoo"),
+    (Q.zero(log(y ** 3) - 3 * log(y)), Q.positive(y), True, "real"),
+    (Q.zero(log(y ** 3) - 3 * log(y)), Q.complex(y) & ~Q.zero(y), None, "log(I**3) = -pi*I/2 != 3*pi*I/2"),
+    (Q.zero(log(y ** 3) - 3 * log(y)), Q.complex(y) & Q.gt(re(y), 0) & Q.gt(im(y), 0) & Q.lt(2 * im(y), re(y)),
+     True, "y**3 in the first quadrant, so 3*arg(y) is not in (pi, 3*pi/2)"),
+    # decision 20, b**x with x = -1: log(1/y) = -log(y), + 2*pi*I on the negative axis
+    (Q.zero(log(1 / y) + log(y)), Q.imaginary(y), True, "arg(y) = +-pi/2"),
+    (Q.zero(log(1 / y) + log(y)), Q.complex(y) & Q.gt(re(y), 0), True, "|arg(y)| < pi/2"),
+    (Q.zero(log(1 / y) + log(y)), Q.real(y) & ~Q.zero(y), None, "y < 0"),
+    (Q.zero(log(1 / y) + log(y)), Q.negative(y), False, "arg(1/y) = arg(y) = pi"),
+    (Q.zero(log(1 / y) + log(y) - 2 * I * pi), Q.negative(y), True, "arg(1/y) = arg(y) = pi"),
 ]
 
 
