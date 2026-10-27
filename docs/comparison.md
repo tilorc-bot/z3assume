@@ -619,6 +619,25 @@ the 553 public queries, asked as given, none is lost and one comes back:
 `sqrt(-2 + sqrt(-5))*sqrt(-2 - sqrt(-5)) = 3`, True, argued above. (In
 the site's form `Q.zero(lhs - rhs)` it was True at 8cf915f already.)
 
+#39 bounds the growth of z3's Groebner bases (design.md decision 15). No
+stream or gate2 answer changes. Of the 552 public queries in the site's
+form `Q.zero(lhs - rhs)`, none is lost and three are decided:
+
+- simplipy, `cosh(asinh(tan(x))) = Abs(1/cos(x))` for imaginary `x`
+  (True), argued above (lost at #31).
+- wester, `sign(k*x**n - k*y**n) = 1` under `x > y`, `y > 1/10`,
+  `x < 10`, `k > 0`, `0 < n < 10` (True), argued above (lost at #31; the
+  test of decision 11 passes again).
+- wester, `sqrt(x*y*Abs(z)**2)/(sqrt(x)*Abs(z)) = sqrt(y)` for complex
+  `x`, `y`, `z` with `z != 0`, `re(x) < 0 <= im(x)`, `re(y) < 0 <= im(y)`
+  (False). `|z|**2` is positive, so the numerator is `|z|*sqrt(x*y)`
+  and the left side is `sqrt(x*y)/sqrt(x)`. The principal arguments of
+  `x` and `y` are in `(pi/2, pi]`, so their sum is in `(pi, 2*pi]`, and
+  the principal argument of `x*y` is that sum minus `2*pi`. So
+  `sqrt(x*y) = -sqrt(x)*sqrt(y)`, the left side is `-sqrt(y)`, and that
+  equals `sqrt(y)` only for `y = 0`, which `re(y) < 0` excludes. The
+  bench's reference timed out on it.
+
 ## Speed
 
 z3assume is about 50 to 60 times slower than satassume. The latest

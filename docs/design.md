@@ -701,3 +701,22 @@ one-line rationale added here.
    in the bench site's form (`Q.zero(lhs - rhs)`, 552 public queries)
    they lose the False of its `n < 0` twin and gain nothing. On the
    stream and gate2 no form changes an answer.
+15. New (#39): every check bounds the growth of z3's Groebner bases
+   (`smt.arith.nl.grobner_expr_degree_growth` and
+   `grobner_expr_size_growth` 1 instead of 2; `PARAMS` in `ask.py`).
+   Rationale: one Groebner call costs z3 about one step of the rlimit, but
+   on the polynomials that complex symbols give (a complex product is two
+   real polynomials in the parts), the default growth let one call run
+   for seconds. Of the bench site's 31 timeouts at 13adce5, all of them
+   checks stopped by the 10 s backstop after 250,000 to 1,000,000 steps, 18
+   came out fast with Groebner off. Turning it off loses the Tribonacci
+   identity (decision 12); the bound keeps it and bounds each call, so it
+   stays a limit in steps and the answers stay deterministic. Like any
+   such parameter it moves some searches both ways. The stream and gate2
+   answers do not change. Of the site's 552 public queries, 3 more are
+   decided (all right, docs/comparison.md) and none is lost; the
+   expected failure `test_n6_power_increasing` of decision 11 now passes.
+   Of the private suites, run where they live, 2 answers are gained and 2 lost, and
+   the queries over 10 s go from 13 to 9. gate2 and every eighth stream
+   query take the same time (pinned pareto1 core, three rotating rounds:
+   medians 29.35 s and 30.53 s before, 29.46 s and 30.61 s after).
